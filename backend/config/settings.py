@@ -17,6 +17,7 @@ INSTALLED_APPS = [
     'rest_framework.authtoken',
     'corsheaders',
     'passengers',
+    'drivers',
 ]
 
 MIDDLEWARE = [

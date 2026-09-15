@@ -16,5 +16,6 @@ def api_status(request):
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/', include('passengers.urls')),
+    path('api/driver/', include('drivers.urls')),
     path('', api_status, name='api-status'),
 ]

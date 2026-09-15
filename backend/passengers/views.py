@@ -7,6 +7,10 @@ from urllib.request import Request, urlopen
 from html import unescape
 from math import atan2, cos, radians, sin, sqrt
 import re
+from datetime import timedelta
+from django.utils import timezone
+from django.db import transaction
+from django.shortcuts import get_object_or_404
 from rest_framework import generics, permissions, serializers, status
 from rest_framework.authtoken.models import Token
 from rest_framework.response import Response
@@ -58,10 +62,34 @@ class RegisterSerializer(serializers.Serializer):
 
 
 class RideSerializer(serializers.ModelSerializer):
+    offers = serializers.SerializerMethodField()
+    passenger_name = serializers.SerializerMethodField()
+
     class Meta:
         model = Ride
-        fields = ['id', 'origin', 'destination', 'origin_lat', 'origin_lng', 'destination_lat', 'destination_lng', 'distance_km', 'duration_minutes', 'vehicle_type', 'offer_amount', 'estimated_price', 'status', 'created_at']
-        read_only_fields = ['id', 'status', 'created_at']
+        fields = ['id', 'origin', 'destination', 'origin_lat', 'origin_lng', 'destination_lat', 'destination_lng', 'distance_km', 'duration_minutes', 'vehicle_type', 'offer_amount', 'estimated_price', 'final_fare', 'status', 'passenger_name', 'offers', 'created_at']
+        read_only_fields = ['id', 'status', 'final_fare', 'passenger_name', 'offers', 'created_at']
+
+    def validate_offer_amount(self, value):
+        if value <= 0:
+            raise serializers.ValidationError('La propuesta debe ser mayor que cero.')
+        return value
+
+    def get_passenger_name(self, obj):
+        return obj.passenger.get_full_name() or obj.passenger.username
+
+    def get_offers(self, obj):
+        return [
+            {
+                'id': offer.id,
+                'amount': offer.amount,
+                'status': offer.status,
+                'driver_id': offer.driver_id,
+                'driver_name': offer.driver.get_full_name() or offer.driver.username,
+                'created_at': offer.created_at,
+            }
+            for offer in obj.offers.select_related('driver').all()
+        ]
 
 
 class LoginView(APIView):
@@ -73,8 +101,12 @@ class LoginView(APIView):
         user = authenticate(**serializer.validated_data)
         if not user:
             return Response({'detail': 'Credenciales invalidas.'}, status=status.HTTP_401_UNAUTHORIZED)
-        profile, _ = PassengerProfile.objects.get_or_create(user=user)
         account, _ = AccountProfile.objects.get_or_create(user=user)
+        profile, _ = PassengerProfile.objects.get_or_create(user=user)
+        driver_profile = None
+        if account.role == AccountProfile.Role.DRIVER:
+            from drivers.models import DriverProfile
+            driver_profile, _ = DriverProfile.objects.get_or_create(user=user)
         token, _ = Token.objects.get_or_create(user=user)
         return Response({
             'token': token.key,
@@ -83,8 +115,8 @@ class LoginView(APIView):
                 'name': user.get_full_name() or user.username,
                 'username': user.username,
                 'role': account.role,
-                'points': profile.points,
-                'tier': profile.tier,
+                'points': driver_profile.points if driver_profile else profile.points,
+                'tier': driver_profile.tier if driver_profile else profile.tier,
             },
         })
 
@@ -113,14 +145,19 @@ class RegisterView(APIView):
             vehicle_plate=data.get('vehicle_plate', '').upper(),
         )
         profile, _ = PassengerProfile.objects.get_or_create(user=user)
+        if data['role'] == AccountProfile.Role.DRIVER:
+            from drivers.models import DriverProfile
+            driver_profile, _ = DriverProfile.objects.get_or_create(user=user)
+        else:
+            driver_profile = None
         token, _ = Token.objects.get_or_create(user=user)
         return Response({'token': token.key, 'user': {
             'id': user.id,
             'name': user.get_full_name() or user.username,
             'username': user.username,
             'role': data['role'],
-            'points': profile.points,
-            'tier': profile.tier,
+            'points': driver_profile.points if driver_profile else profile.points,
+            'tier': driver_profile.tier if driver_profile else profile.tier,
         }}, status=status.HTTP_201_CREATED)
 
 
@@ -271,4 +308,47 @@ class RideListCreateView(generics.ListCreateAPIView):
         return Ride.objects.filter(passenger=self.request.user)
 
     def perform_create(self, serializer):
+        role = AccountProfile.objects.filter(user=self.request.user).values_list('role', flat=True).first()
+        if role != AccountProfile.Role.PASSENGER:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied('Solo los pasajeros pueden solicitar viajes.')
         serializer.save(passenger=self.request.user)
+
+
+class RideOfferSelectView(APIView):
+    def post(self, request, ride_id, offer_id):
+        from drivers.models import DriverProfile, RideOffer
+
+        with transaction.atomic():
+            ride = get_object_or_404(
+                Ride.objects.select_for_update(),
+                id=ride_id,
+                passenger=request.user,
+            )
+            offer = get_object_or_404(
+                RideOffer.objects.select_for_update().select_related('driver'),
+                id=offer_id,
+                ride=ride,
+                status=RideOffer.Status.PENDING,
+            )
+            if ride.status not in (Ride.Status.REQUESTED, Ride.Status.NEGOTIATING):
+                return Response({'detail': 'La solicitud ya no está disponible.'}, status=status.HTTP_409_CONFLICT)
+
+            profile = DriverProfile.objects.select_for_update().get(user=offer.driver)
+            required_reserve = (offer.amount + 9) // 10
+            available = profile.wallet_balance - profile.reserved_balance
+            if available < required_reserve:
+                return Response({'detail': 'El conductor ya no tiene saldo suficiente para reservar este viaje.'}, status=status.HTTP_409_CONFLICT)
+
+            profile.reserved_balance += required_reserve
+            profile.status = DriverProfile.Status.RESERVED_FOR_TRIP
+            profile.save(update_fields=['reserved_balance', 'status'])
+            ride.driver = offer.driver
+            ride.final_fare = offer.amount
+            ride.status = Ride.Status.DRIVER_SELECTED
+            ride.save(update_fields=['driver', 'final_fare', 'status'])
+            offer.status = RideOffer.Status.ACCEPTED
+            offer.save(update_fields=['status'])
+            ride.offers.exclude(id=offer.id).filter(status=RideOffer.Status.PENDING).update(status=RideOffer.Status.REJECTED)
+
+        return Response(RideSerializer(ride).data)

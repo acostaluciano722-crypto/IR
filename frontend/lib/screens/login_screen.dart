@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../services/api_service.dart';
 import 'passenger_home_screen.dart';
+import 'driver_home_screen.dart';
 import 'register_screen.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -38,11 +39,19 @@ class _LoginScreenState extends State<LoginScreen> {
         _passwordController.text,
       );
       if (!mounted) return;
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(
-          builder: (_) => PassengerHomeScreen(api: _api, user: user),
-        ),
-      );
+      if (user['role'] == 'driver') {
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(
+            builder: (_) => DriverHomeScreen(api: _api, user: user),
+          ),
+        );
+      } else {
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(
+            builder: (_) => PassengerHomeScreen(api: _api, user: user),
+          ),
+        );
+      }
     } on ApiException catch (error) {
       setState(() => _error = error.message);
     } catch (_) {

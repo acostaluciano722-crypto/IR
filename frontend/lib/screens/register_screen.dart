@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../services/api_service.dart';
 import 'passenger_home_screen.dart';
+import 'driver_home_screen.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -39,7 +40,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
     try {
       final user = await _api.register(name: _name.text.trim(), identifier: _identifier.text.trim(), phone: _phone.text.trim(), role: _role, password: _password.text, documentNumber: _document.text.trim(), vehicleType: _vehicle.text.trim(), vehiclePlate: _plate.text.trim());
       if (!mounted) return;
-      Navigator.of(context).pushAndRemoveUntil(MaterialPageRoute(builder: (_) => PassengerHomeScreen(api: _api, user: user)), (route) => false);
+      if (user['role'] == 'driver') {
+        Navigator.of(context).pushAndRemoveUntil(MaterialPageRoute(builder: (_) => DriverHomeScreen(api: _api, user: user)), (route) => false);
+      } else {
+        Navigator.of(context).pushAndRemoveUntil(MaterialPageRoute(builder: (_) => PassengerHomeScreen(api: _api, user: user)), (route) => false);
+      }
     } on ApiException catch (error) { setState(() => _error = error.message); }
     catch (_) { setState(() => _error = 'No hay conexión con IR. Revisa el servidor.'); }
     finally { if (mounted) setState(() => _loading = false); }

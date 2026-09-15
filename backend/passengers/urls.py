@@ -1,5 +1,5 @@
 from django.urls import path
-from .views import LoginView, NearbyPlacesView, PassengerMeView, PlaceDetailsView, PlaceSearchView, RegisterView, RideListCreateView, RouteEstimateView
+from .views import LoginView, NearbyPlacesView, PassengerMeView, PlaceDetailsView, PlaceSearchView, RegisterView, RideListCreateView, RideOfferSelectView, RouteEstimateView
 
 urlpatterns = [
     path('auth/login/', LoginView.as_view(), name='login'),
@@ -10,4 +10,5 @@ urlpatterns = [
     path('places/nearby/', NearbyPlacesView.as_view(), name='places-nearby'),
     path('routes/estimate/', RouteEstimateView.as_view(), name='route-estimate'),
     path('rides/', RideListCreateView.as_view(), name='rides'),
+    path('rides/<int:ride_id>/offers/<int:offer_id>/select/', RideOfferSelectView.as_view(), name='select-ride-offer'),
 ]
