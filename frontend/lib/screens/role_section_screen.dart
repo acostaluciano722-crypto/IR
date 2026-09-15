@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../ui/ir_theme.dart';
+
 class RoleSectionScreen extends StatelessWidget {
   const RoleSectionScreen(
       {required this.title,
@@ -13,9 +15,11 @@ class RoleSectionScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text(title)),
-      body: ListView.separated(
+    return Theme(
+      data: irDarkTheme(),
+      child: Scaffold(
+        appBar: AppBar(title: Text(title)),
+        body: ListView.separated(
         padding: const EdgeInsets.all(20),
         itemCount: items.length,
         separatorBuilder: (_, __) => const SizedBox(height: 12),
@@ -25,7 +29,7 @@ class RoleSectionScreen extends StatelessWidget {
             child: ListTile(
               contentPadding: const EdgeInsets.all(16),
               leading:
-                  Icon(item.icon, color: Theme.of(context).colorScheme.primary),
+                  Icon(item.icon, color: IrPalette.accent),
               title: Text(item.title,
                   style: const TextStyle(fontWeight: FontWeight.w800)),
               subtitle: Padding(
@@ -37,6 +41,7 @@ class RoleSectionScreen extends StatelessWidget {
             ),
           );
         },
+        ),
       ),
     );
   }

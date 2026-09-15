@@ -36,6 +36,7 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
   GoogleMapController? _mapController;
   bool _hasInitialLocation = false;
   bool _loading = false;
+  bool _menuExpanded = false;
   String? _message;
 
   @override
@@ -442,6 +443,28 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
     await controller.animateCamera(CameraUpdate.newLatLngZoom(_location, 15));
   }
 
+  void _openMenuSection(String value) {
+    setState(() => _menuExpanded = false);
+    final screen = value == 'points'
+        ? PointsScreen(role: 'passenger', points: _points, tier: _tier)
+        : value == 'bonus'
+            ? BonusScreen(role: 'passenger', points: _points, tier: _tier)
+            : RoleSectionScreen(
+                title: value == 'history'
+                    ? 'Historial de viajes'
+                    : value == 'support'
+                        ? 'Soporte IR'
+                        : 'Perfil',
+                role: 'passenger',
+                items: _passengerSectionItems(
+                    value,
+                    _rides,
+                    widget.user['name']?.toString() ?? 'Usuario IR',
+                    _points,
+                    _tier));
+    Navigator.of(context).push(MaterialPageRoute(builder: (_) => screen));
+  }
+
   Future<void> _fitRoute(LatLng destination, Map<String, dynamic> route) async {
     if (_mapController == null) return;
     final points = _routePoints(route, destination);
@@ -532,6 +555,8 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
                     Marker(
                         markerId: const MarkerId('destination'),
                         position: _destinationLocation!,
+                        icon: BitmapDescriptor.defaultMarkerWithHue(
+                            BitmapDescriptor.hueYellow),
                         infoWindow: InfoWindow(
                             title: _destination.text,
                             snippet: 'Destino seleccionado')),
@@ -540,70 +565,6 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
                 style: _googleMapStyle,
               ),
             ),
-            Positioned(
-                top: 16,
-                left: 18,
-                child: _RoundAction(
-                    icon: Icons.menu,
-                    onPressed: () => showMenu<String>(
-                          context: context,
-                          position: const RelativeRect.fromLTRB(16, 76, 0, 0),
-                          items: [
-                            PopupMenuItem(
-                                value: 'points',
-                                child: const ListTile(
-                                    leading: Icon(Icons.stars_outlined),
-                                    title: Text('Puntos'))),
-                            PopupMenuItem(
-                                value: 'bonus',
-                                child: const ListTile(
-                                    leading: Icon(Icons.card_giftcard_outlined),
-                                    title: Text('Bonificaciones'))),
-                            PopupMenuItem(
-                                value: 'history',
-                                child: const ListTile(
-                                    leading: Icon(Icons.history),
-                                    title: Text('Historial'))),
-                            PopupMenuItem(
-                                value: 'support',
-                                child: const ListTile(
-                                    leading: Icon(Icons.support_agent_outlined),
-                                    title: Text('Soporte'))),
-                            PopupMenuItem(
-                                value: 'profile',
-                                child: const ListTile(
-                                    leading: Icon(Icons.person_outline),
-                                    title: Text('Perfil'))),
-                          ],
-                        ).then((value) {
-                          if (!context.mounted || value == null) return;
-                          final screen = value == 'points'
-                              ? PointsScreen(
-                                  role: 'passenger',
-                                  points: _points,
-                                  tier: _tier)
-                              : value == 'bonus'
-                                  ? BonusScreen(
-                                      role: 'passenger',
-                                      points: _points,
-                                      tier: _tier)
-                                  : RoleSectionScreen(
-                                      title: value == 'history'
-                                          ? 'Historial de viajes'
-                                          : value == 'support'
-                                              ? 'Soporte IR'
-                                              : 'Perfil',
-                                      role: 'passenger',
-                                      items: _passengerSectionItems(
-                                          value,
-                                          _rides,
-                                          widget.user['name']?.toString() ??
-                                              'Usuario IR',
-                                          _points,
-                                          _tier));
-                          Navigator.of(context)
-                              .push(MaterialPageRoute(builder: (_) => screen));
-                        }))),
             Positioned(
                 top: 18,
                 right: 18,
@@ -658,6 +619,29 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
                 onSelectOffer: _selectOffer,
               ),
             ),
+            if (_menuExpanded)
+              Positioned.fill(
+                  child: GestureDetector(
+                      onTap: () => setState(() => _menuExpanded = false),
+                      child: Container(
+                          color: const Color(0xFF000000).withValues(alpha: .42)))),
+            AnimatedPositioned(
+                duration: const Duration(milliseconds: 220),
+                curve: Curves.easeOutCubic,
+                top: 0,
+                bottom: 0,
+                left: _menuExpanded ? 0 : -324,
+                width: 308,
+                child: _PassengerSideBar(
+                    onClose: () => setState(() => _menuExpanded = false),
+                    onSectionSelected: _openMenuSection)),
+            Positioned(
+                top: 16,
+                left: 18,
+                child: _RoundAction(
+                    icon: _menuExpanded ? Icons.close : Icons.menu,
+                    onPressed: () =>
+                        setState(() => _menuExpanded = !_menuExpanded))),
           ]),
         ),
       );
@@ -711,13 +695,73 @@ List<SectionItem> _passengerSectionItems(
 }
 
 const _googleMapStyle = '''[
-  {"elementType":"geometry","stylers":[{"color":"#18243b"}]},
-  {"elementType":"labels.text.fill","stylers":[{"color":"#a9b6c9"}]},
-  {"elementType":"labels.text.stroke","stylers":[{"color":"#18243b"}]},
-  {"featureType":"road","elementType":"geometry","stylers":[{"color":"#344968"}]},
-  {"featureType":"road.highway","elementType":"geometry","stylers":[{"color":"#71809a"}]},
-  {"featureType":"water","elementType":"geometry","stylers":[{"color":"#0e1d36"}]}
+  {"elementType":"geometry","stylers":[{"color":"#11151b"}]},
+  {"elementType":"labels.text.fill","stylers":[{"color":"#aeb7c2"}]},
+  {"elementType":"labels.text.stroke","stylers":[{"color":"#11151b"}]},
+  {"featureType":"road","elementType":"geometry","stylers":[{"color":"#28333e"}]},
+  {"featureType":"road.highway","elementType":"geometry","stylers":[{"color":"#626b75"}]},
+  {"featureType":"water","elementType":"geometry","stylers":[{"color":"#091017"}]}
 ]''';
+
+class _PassengerSideBar extends StatelessWidget {
+  const _PassengerSideBar(
+      {required this.onClose, required this.onSectionSelected});
+  final VoidCallback onClose;
+  final ValueChanged<String> onSectionSelected;
+
+  static const _items = [
+    ('points', 'Puntos', Icons.stars_outlined),
+    ('bonus', 'Bonificaciones', Icons.card_giftcard_outlined),
+    ('history', 'Historial', Icons.history),
+    ('support', 'Soporte', Icons.support_agent_outlined),
+    ('profile', 'Perfil', Icons.person_outline),
+  ];
+
+  @override
+  Widget build(BuildContext context) => Material(
+        color: const Color(0xFF111213),
+        elevation: 10,
+        child: SafeArea(
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(16, 82, 16, 20),
+            children: [
+              Row(children: [
+                const Expanded(
+                    child: Text('IR',
+                        style: TextStyle(
+                            color: Color(0xFFE8F044),
+                            fontSize: 28,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: -1))),
+                IconButton(
+                    tooltip: 'Cerrar menú',
+                    onPressed: onClose,
+                    icon: const Icon(Icons.close, color: Colors.white70)),
+              ]),
+              const SizedBox(height: 8),
+              const Divider(color: Color(0xFF343638)),
+              const SizedBox(height: 8),
+              ..._items.map((item) => Padding(
+                    padding: const EdgeInsets.only(bottom: 6),
+                    child: ListTile(
+                      minVerticalPadding: 8,
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14)),
+                      leading: Icon(item.$3,
+                          color: const Color(0xFFE8F044), size: 24),
+                      title: Text(item.$2,
+                          style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600)),
+                      onTap: () => onSectionSelected(item.$1),
+                    ),
+                  )),
+            ],
+          ),
+        ),
+      );
+}
 
 class _RideSheet extends StatelessWidget {
   const _RideSheet(
@@ -763,11 +807,11 @@ class _RideSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Container(
         decoration: const BoxDecoration(
-            color: Color(0xFF1B1C1D),
+        color: Color(0xFF111213),
             borderRadius: BorderRadius.vertical(top: Radius.circular(30))),
         child: ListView(
             controller: controller,
-            padding: const EdgeInsets.fromLTRB(14, 10, 14, 30),
+        padding: const EdgeInsets.fromLTRB(16, 10, 16, 30),
             children: [
               Center(
                   child: Container(
@@ -776,11 +820,11 @@ class _RideSheet extends StatelessWidget {
                       decoration: BoxDecoration(
                           color: Colors.white38,
                           borderRadius: BorderRadius.circular(5)))),
-              const SizedBox(height: 14),
-              _VehiclePicker(selected: vehicle, onChanged: onVehicleChanged),
-              const SizedBox(height: 14),
-              _PointsCard(points: points, tier: tier),
               const SizedBox(height: 16),
+              _VehiclePicker(selected: vehicle, onChanged: onVehicleChanged),
+              const SizedBox(height: 16),
+              _PointsCard(points: points, tier: tier),
+              const SizedBox(height: 14),
               TextField(
                 controller: destinationController,
                 style: const TextStyle(
@@ -869,7 +913,7 @@ class _VehiclePicker extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => SizedBox(
-        height: 92,
+      height: 88,
         child: ListView.separated(
           scrollDirection: Axis.horizontal,
           itemCount: options.length,
@@ -881,17 +925,17 @@ class _VehiclePicker extends StatelessWidget {
               onTap: () => onChanged(option.$1),
               child: AnimatedContainer(
                   duration: const Duration(milliseconds: 180),
-                  width: 108,
-                  padding: const EdgeInsets.fromLTRB(10, 10, 10, 8),
+                width: 96,
+                padding: const EdgeInsets.fromLTRB(8, 9, 8, 8),
                   decoration: BoxDecoration(
                       color: active
                           ? const Color(0xFFE8F044)
-                          : const Color(0xFF1B1C1D),
+                    : const Color(0xFF191A1B),
                       borderRadius: BorderRadius.circular(16),
                       border: Border.all(
                           color: active
                               ? const Color(0xFFE8F044)
-                              : Colors.transparent)),
+                      : const Color(0xFF3A3B3C))),
                   child: Column(children: [
                     Icon(option.$3,
                         color:
@@ -978,10 +1022,11 @@ class _PointsCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 11),
         decoration: BoxDecoration(
-            color: const Color(0xFF303031),
-            borderRadius: BorderRadius.circular(14)),
+        color: const Color(0xFF191A1B),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFF2B2C2D))),
         child: Row(children: [
           const Icon(Icons.stars, color: Color(0xFFE8F044), size: 28),
           const SizedBox(width: 10),
@@ -995,7 +1040,7 @@ class _PointsCard extends StatelessWidget {
                     style: const TextStyle(
                         color: Colors.white, fontWeight: FontWeight.w800)),
               ])),
-          const Text('PI = tarifa válida / COP 20',
+            const Text('COP 20 = 1 PI',
               style: TextStyle(color: Colors.white54, fontSize: 10)),
         ]),
       );
@@ -1016,8 +1061,9 @@ class _RecentRide extends StatelessWidget {
       margin: const EdgeInsets.only(top: 8),
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-          color: const Color(0xFF303031),
-          borderRadius: BorderRadius.circular(12)),
+          color: const Color(0xFF202122),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: const Color(0xFF2D2E2F))),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
           const Icon(Icons.route, color: Color(0xFFE8F044)),
@@ -1066,8 +1112,9 @@ class _RouteSummary extends StatelessWidget {
         margin: const EdgeInsets.only(top: 10),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         decoration: BoxDecoration(
-            color: const Color(0xFF303031),
-            borderRadius: BorderRadius.circular(14)),
+          color: const Color(0xFF202122),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: const Color(0xFF2D2E2F))),
         child: Row(children: [
           const Icon(Icons.route, color: Color(0xFFE8F044)),
           const SizedBox(width: 10),
@@ -1094,8 +1141,9 @@ class _NavigationCard extends StatelessWidget {
   Widget build(BuildContext context) => Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         decoration: BoxDecoration(
-            color: const Color(0xFF171B1D).withValues(alpha: .95),
-            borderRadius: BorderRadius.circular(18)),
+          color: const Color(0xFF111213).withValues(alpha: .97),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: const Color(0xFF2D2E2F))),
         child: Row(children: [
           Icon(_maneuverIcon(nextStep?['maneuver']?.toString()),
               color: const Color(0xFFE8F044), size: 24),
@@ -1140,13 +1188,16 @@ class _RoundAction extends StatelessWidget {
   final VoidCallback onPressed;
   @override
   Widget build(BuildContext context) => Material(
-      color: const Color(0xFF171B1D),
+      color: const Color(0xFF111213),
       shape: const CircleBorder(),
       child: InkWell(
           onTap: onPressed,
           customBorder: const CircleBorder(),
-          child: SizedBox(
+        child: Container(
               width: 58,
               height: 58,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            border: Border.all(color: const Color(0xFF343638))),
               child: Icon(icon, color: Colors.white, size: 29))));
 }

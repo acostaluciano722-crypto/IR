@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../ui/ir_theme.dart';
+
 class PointsScreen extends StatelessWidget {
   const PointsScreen(
       {required this.role,
@@ -14,20 +16,22 @@ class PointsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDriver = role == 'driver';
-    return Scaffold(
-      appBar: AppBar(title: const Text('Puntos')),
-      body: ListView(
+    return Theme(
+      data: irDarkTheme(),
+      child: Scaffold(
+        appBar: AppBar(title: const Text('Puntos')),
+        body: ListView(
         padding: const EdgeInsets.all(20),
         children: [
           Text('Puntos ${isDriver ? 'conductor' : 'pasajero'}',
-              style: Theme.of(context)
-                  .textTheme
-                  .headlineSmall
-                  ?.copyWith(fontWeight: FontWeight.w800)),
+              style: const TextStyle(
+                color: IrPalette.text,
+                fontSize: 24,
+                fontWeight: FontWeight.w800)),
           const SizedBox(height: 8),
           const Text(
               'Esta sección muestra únicamente actividad y progreso ProMaster. Los puntos no son dinero.',
-              style: TextStyle(color: Colors.black54)),
+              style: TextStyle(color: IrPalette.muted)),
           const SizedBox(height: 20),
           Card(
             child: Padding(
@@ -53,7 +57,7 @@ class PointsScreen extends StatelessWidget {
                             ? 'Driver PI = débito válido consumido / COP 10'
                             : 'Passenger PI = tarifa final válida / COP 20',
                         style: const TextStyle(
-                            fontSize: 12, color: Colors.black54)),
+                            fontSize: 12, color: IrPalette.muted)),
                   ]),
             ),
           ),
@@ -72,6 +76,7 @@ class PointsScreen extends StatelessWidget {
                   subtitle: Text(
                       'PI, PG y UP miden actividad o elegibilidad. No crean dinero ni garantizan una bonificación.'))),
         ],
+        ),
       ),
     );
   }
