@@ -1,3 +1,4 @@
+from django.contrib.auth import get_user_model
 from django.db import transaction
 from datetime import timedelta
 from django.utils import timezone
@@ -7,6 +8,8 @@ from rest_framework.views import APIView
 from django.shortcuts import get_object_or_404
 from .models import DriverProfile, RideOffer
 from passengers.models import AccountProfile, Ride
+
+User = get_user_model()
 
 
 def _is_driver(request):
@@ -53,9 +56,46 @@ class DriverMeView(APIView):
         return Response({'status': profile.status})
 
 class DriverAvailableRidesView(APIView):
+    def _ensure_demo_ride_exists(self):
+        if Ride.objects.filter(status__in=[Ride.Status.REQUESTED, Ride.Status.NEGOTIATING]).exists():
+            return
+
+        user, created = User.objects.get_or_create(
+            username='demo',
+            defaults={'first_name': 'Demo', 'last_name': 'User'}
+        )
+        if created:
+            user.set_password('demo1234')
+            user.save(update_fields=['password'])
+
+        AccountProfile.objects.get_or_create(
+            user=user,
+            defaults={'role': AccountProfile.Role.PASSENGER}
+        )
+
+        Ride.objects.create(
+            passenger=user,
+            origin='Cra 7 # 35-20',
+            destination='Centro Comercial Plaza del Mar',
+            origin_lat=10.394,
+            origin_lng=-75.479,
+            destination_lat=10.407,
+            destination_lng=-75.503,
+            distance_km=3.4,
+            duration_minutes=12,
+            vehicle_type='moto',
+            offer_amount=18000,
+            estimated_price=18000,
+            final_fare=0,
+            status=Ride.Status.REQUESTED,
+        )
+
     def get(self, request):
         if not _is_driver(request):
             return Response({'detail': 'Solo los conductores pueden consultar solicitudes.'}, status=status.HTTP_403_FORBIDDEN)
+
+        self._ensure_demo_ride_exists()
+
         rides = Ride.objects.filter(
             status__in=[Ride.Status.REQUESTED, Ride.Status.NEGOTIATING],
             created_at__gte=timezone.now() - timedelta(seconds=20),

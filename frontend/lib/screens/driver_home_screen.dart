@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../services/api_service.dart';
 import 'bonus_screen.dart';
 import 'points_screen.dart';
@@ -27,6 +28,42 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
   Timer? _refreshTimer;
   Timer? _countdownTimer;
   bool _refreshing = false;
+  GoogleMapController? _mapController;
+
+  Set<Marker> get _requestMarkers {
+    final markers = <Marker>{};
+    for (final ride in _availableRides) {
+      final originLat = (ride['origin_lat'] as num?)?.toDouble() ?? 10.405;
+      final originLng = (ride['origin_lng'] as num?)?.toDouble() ?? -75.505;
+      final destinationLat =
+          (ride['destination_lat'] as num?)?.toDouble() ?? originLat;
+      final destinationLng =
+          (ride['destination_lng'] as num?)?.toDouble() ?? originLng;
+
+      markers.add(Marker(
+        markerId: MarkerId('ride-${ride['id']}-origin'),
+        position: LatLng(originLat, originLng),
+        infoWindow: InfoWindow(
+          title: ride['passenger_name']?.toString() ?? 'Pasajero',
+          snippet: 'Origen: ${ride['origin']}',
+        ),
+        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueYellow),
+      ));
+
+      if (destinationLat != originLat || destinationLng != originLng) {
+        markers.add(Marker(
+          markerId: MarkerId('ride-${ride['id']}-destination'),
+          position: LatLng(destinationLat, destinationLng),
+          infoWindow: InfoWindow(
+            title: 'Destino',
+            snippet: ride['destination']?.toString() ?? 'Destino',
+          ),
+          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
+        ));
+      }
+    }
+    return markers;
+  }
 
   @override
   void initState() {
@@ -360,33 +397,92 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
     if (active != null) return active;
     if (_availableRides.isEmpty)
       return const Center(child: Text('Buscando viajes cercanos...'));
-    return ListView.builder(
-      itemCount: _availableRides.length,
-      itemBuilder: (context, index) {
-        final ride = _availableRides[index];
-        return Card(
-          margin: const EdgeInsets.all(8),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-            child:
-                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text('${ride['origin']} ➔ ${ride['destination']}',
-                  style: const TextStyle(fontWeight: FontWeight.w700)),
-              const SizedBox(height: 6),
-              Text(
-                  '${ride['passenger_name']} · ${ride['vehicle_type']}\nPrecio propuesto: \$${ride['offer_amount']} · Estimado: \$${ride['estimated_price']}\n${ride['distance_km']} km · ${ride['duration_minutes']} min · ${ride['remaining_seconds']} s restantes'),
-              const SizedBox(height: 10),
-              SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                      onPressed: () => _makeOffer(
-                          ride['id'] as int, ride['estimated_price'] as int),
-                      icon: const Icon(Icons.local_offer_outlined),
-                      label: const Text('Hacer oferta'))),
-            ]),
+
+    return Column(
+      children: [
+        Expanded(
+          flex: 2,
+          child: GoogleMap(
+            initialCameraPosition: const CameraPosition(
+              target: LatLng(10.405, -75.505),
+              zoom: 12,
+            ),
+            markers: _requestMarkers,
+            myLocationButtonEnabled: false,
+            zoomControlsEnabled: false,
+            mapType: MapType.normal,
+            onMapCreated: (controller) {
+              _mapController = controller;
+            },
           ),
-        );
-      },
+        ),
+        Expanded(
+          flex: 1,
+          child: ListView.builder(
+            padding: const EdgeInsets.fromLTRB(10, 8, 10, 12),
+            itemCount: _availableRides.length,
+            itemBuilder: (context, index) {
+              final ride = _availableRides[index];
+              final amount = (ride['estimated_price'] as num?)?.toInt() ??
+                  (ride['offer_amount'] as num?)?.toInt() ?? 0;
+              return Card(
+                margin: const EdgeInsets.only(bottom: 8),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              ride['passenger_name']?.toString() ?? 'Pasajero',
+                              style: const TextStyle(
+                                  fontWeight: FontWeight.w800, fontSize: 16),
+                            ),
+                          ),
+                          Text(
+                            'COP ${amount.toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (m) => '${m[1]},')}',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w800,
+                              color: Color(0xFF171B1D),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text('Desde: ${ride['origin']}'),
+                      const SizedBox(height: 4),
+                      Text('Hasta: ${ride['destination']}'),
+                      const SizedBox(height: 4),
+                      Text(
+                          'Tipo: ${ride['vehicle_type']} • ${ride['distance_km']} km • ${ride['duration_minutes']} min'),
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          const Icon(Icons.attach_money, size: 18),
+                          const SizedBox(width: 6),
+                          Text('Paga: COP $amount'),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          onPressed: () => _makeOffer(
+                              ride['id'] as int, amount),
+                          icon: const Icon(Icons.local_offer_outlined),
+                          label: const Text('Hacer oferta'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
     );
   }
 
