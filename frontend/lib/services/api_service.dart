@@ -76,6 +76,24 @@ class ApiService {
     return (data as List).cast<Map<String, dynamic>>();
   }
 
+  Future<Map<String, dynamic>> updateRideLocation({
+    required int rideId,
+    required double latitude,
+    required double longitude,
+  }) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/rides/$rideId/location/'),
+      headers: {..._headers, 'Content-Type': 'application/json'},
+      body: jsonEncode({'latitude': latitude, 'longitude': longitude}),
+    );
+    final data = _decode(response);
+    if (response.statusCode != 200) {
+      throw ApiException(_errorMessage(data,
+          'No fue posible actualizar tu ubicación. (HTTP ${response.statusCode})'));
+    }
+    return data as Map<String, dynamic>;
+  }
+
   Future<Map<String, dynamic>> getPassengerMe() async {
     final response =
         await http.get(Uri.parse('$baseUrl/passenger/me/'), headers: _headers);
@@ -175,8 +193,8 @@ class ApiService {
     );
     final data = _decode(response);
     if (response.statusCode != 201) {
-      throw ApiException(
-          data['detail']?.toString() ?? 'No fue posible solicitar el viaje.');
+      throw ApiException(_errorMessage(data,
+          'No fue posible solicitar el viaje. (HTTP ${response.statusCode})'));
     }
     return data as Map<String, dynamic>;
   }
@@ -233,6 +251,19 @@ class ApiService {
     return data as Map<String, dynamic>;
   }
 
+  Future<Map<String, dynamic>> driverAcceptRide(int rideId) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/driver/rides/$rideId/accept/'),
+      headers: _headers,
+    );
+    final data = _decode(response);
+    if (response.statusCode != 201) {
+      throw ApiException(_errorMessage(data,
+          'No fue posible aceptar la solicitud. (HTTP ${response.statusCode})'));
+    }
+    return data as Map<String, dynamic>;
+  }
+
   Future<Map<String, dynamic>> selectRideOffer(int rideId, int offerId) async {
     final response = await http.post(
       Uri.parse('$baseUrl/rides/$rideId/offers/$offerId/select/'),
@@ -245,6 +276,45 @@ class ApiService {
     return data as Map<String, dynamic>;
   }
 
+  Future<Map<String, dynamic>> rejectRideOffer(int rideId, int offerId) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/rides/$rideId/offers/$offerId/reject/'),
+      headers: _headers,
+    );
+    final data = _decode(response);
+    if (response.statusCode != 200) {
+      throw ApiException(_errorMessage(data,
+          'No fue posible rechazar la oferta. (HTTP ${response.statusCode})'));
+    }
+    return data as Map<String, dynamic>;
+  }
+
+  Future<void> driverRejectRide(int rideId) async {
+    final response = await http.post(
+        Uri.parse('$baseUrl/driver/rides/$rideId/reject/'),
+        headers: _headers);
+    final data = _decode(response);
+    if (response.statusCode != 200) {
+      throw ApiException(_errorMessage(data,
+          'No fue posible rechazar la solicitud. (HTTP ${response.statusCode})'));
+    }
+  }
+
+  Future<Map<String, dynamic>> cancelRide(int rideId,
+      {String reason = ''}) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/rides/$rideId/cancel/'),
+      headers: {..._headers, 'Content-Type': 'application/json'},
+      body: jsonEncode({'reason': reason}),
+    );
+    final data = _decode(response);
+    if (response.statusCode != 200) {
+      throw ApiException(_errorMessage(data,
+          'No fue posible cancelar el viaje. (HTTP ${response.statusCode})'));
+    }
+    return data as Map<String, dynamic>;
+  }
+
   Future<void> driverUpdateRideStatus(int rideId, String status) async {
     final response = await http.post(
       Uri.parse('$baseUrl/driver/rides/$rideId/status/'),
@@ -253,6 +323,32 @@ class ApiService {
     );
     if (response.statusCode != 200)
       throw ApiException('Error al actualizar estado del viaje.');
+  }
+
+  Future<void> verifyRidePickupCode(int rideId, String code) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/driver/rides/$rideId/verify-code/'),
+      headers: {..._headers, 'Content-Type': 'application/json'},
+      body: jsonEncode({'code': code}),
+    );
+    final data = _decode(response);
+    if (response.statusCode != 200) {
+      throw ApiException(_errorMessage(data,
+          'No fue posible iniciar el viaje. (HTTP ${response.statusCode})'));
+    }
+  }
+
+  Future<void> rateRide(int rideId, int rating) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/rides/$rideId/rating/'),
+      headers: {..._headers, 'Content-Type': 'application/json'},
+      body: jsonEncode({'rating': rating}),
+    );
+    final data = _decode(response);
+    if (response.statusCode != 200) {
+      throw ApiException(_errorMessage(data,
+          'No fue posible guardar la calificación. (HTTP ${response.statusCode})'));
+    }
   }
 
   Future<void> driverWalletRecharge(int amount) async {
@@ -279,6 +375,32 @@ class ApiService {
             'Respuesta inválida del servidor (HTTP ${response.statusCode}).'
       };
     }
+  }
+
+  String _errorMessage(dynamic data, String fallback) {
+    if (data is Map && data['detail'] != null) {
+      return data['detail'].toString();
+    }
+    if (data is Map) {
+      final messages = <String>[];
+      data.forEach((field, value) {
+        if (value is List) {
+          messages.add('$field: ${value.map(_flattenError).join(' ')}');
+        } else if (value != null) {
+          messages.add('$field: ${_flattenError(value)}');
+        }
+      });
+      if (messages.isNotEmpty) return messages.join('\n');
+    }
+    return fallback;
+  }
+
+  String _flattenError(dynamic value) {
+    if (value is Map) {
+      return value.values.map(_flattenError).join(' ');
+    }
+    if (value is List) return value.map(_flattenError).join(' ');
+    return value.toString();
   }
 }
 

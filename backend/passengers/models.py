@@ -12,6 +12,8 @@ class AccountProfile(models.Model):
     phone = models.CharField(max_length=20, blank=True)
     document_number = models.CharField(max_length=40, blank=True)
     vehicle_type = models.CharField(max_length=30, blank=True)
+    vehicle_brand = models.CharField(max_length=50, blank=True)
+    vehicle_color = models.CharField(max_length=30, blank=True)
     vehicle_plate = models.CharField(max_length=12, blank=True)
 
 
@@ -84,8 +86,10 @@ class PointTransaction(models.Model):
 
 class Ride(models.Model):
     class Status(models.TextChoices):
+        SEARCHING = 'searching', 'Buscando conductor'
         REQUESTED = 'requested', 'Solicitado'
         NEGOTIATING = 'negotiating', 'Negociando'
+        ACCEPTED = 'accepted', 'Aceptado'
         DRIVER_SELECTED = 'driver_selected', 'Conductor Seleccionado'
         EN_ROUTE = 'en_route', 'En Ruta'
         ARRIVED = 'arrived', 'Llegó'
@@ -102,6 +106,15 @@ class Ride(models.Model):
     origin_lng = models.DecimalField(max_digits=9, decimal_places=6, default=0)
     destination_lat = models.DecimalField(max_digits=9, decimal_places=6, default=0)
     destination_lng = models.DecimalField(max_digits=9, decimal_places=6, default=0)
+    passenger_lat = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+    passenger_lng = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+    driver_lat = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+    driver_lng = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+    passenger_location_label = models.CharField(max_length=255, blank=True)
+    driver_location_label = models.CharField(max_length=255, blank=True)
+    pickup_code = models.CharField(max_length=8, blank=True)
+    passenger_rating = models.PositiveSmallIntegerField(null=True, blank=True)
+    driver_rating = models.PositiveSmallIntegerField(null=True, blank=True)
     distance_km = models.DecimalField(max_digits=7, decimal_places=2, default=0)
     duration_minutes = models.PositiveIntegerField(default=0)
     vehicle_type = models.CharField(max_length=30, default='economy')

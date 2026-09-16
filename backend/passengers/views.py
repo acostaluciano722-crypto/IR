@@ -7,6 +7,7 @@ from urllib.request import Request, urlopen
 from html import unescape
 from math import atan2, cos, radians, sin, sqrt
 import re
+import secrets
 from datetime import timedelta
 from django.utils import timezone
 from django.db import transaction
@@ -45,6 +46,39 @@ def decode_polyline(encoded):
     return points
 
 
+def reverse_location_label(latitude, longitude):
+    try:
+        if settings.GOOGLE_MAPS_API_KEY:
+            params = urlencode({
+                'latlng': f'{latitude},{longitude}',
+                'language': 'es',
+                'region': 'co',
+                'key': settings.GOOGLE_MAPS_API_KEY,
+            })
+            request = Request(f'https://maps.googleapis.com/maps/api/geocode/json?{params}')
+        else:
+            params = urlencode({
+                'format': 'jsonv2',
+                'lat': latitude,
+                'lon': longitude,
+                'zoom': 18,
+                'addressdetails': 1,
+            })
+            request = Request(
+                f'https://nominatim.openstreetmap.org/reverse?{params}',
+                headers={'User-Agent': 'IR-mobility-app/1.0'},
+            )
+        with urlopen(request, timeout=4) as response:
+            import json
+            data = json.loads(response.read().decode('utf-8'))
+        if settings.GOOGLE_MAPS_API_KEY:
+            result = data.get('results', [{}])[0]
+            return result.get('formatted_address') or 'Ubicación actual'
+        return data.get('display_name') or 'Ubicación actual'
+    except (URLError, TimeoutError, ValueError, IndexError):
+        return 'Ubicación actual'
+
+
 class LoginSerializer(serializers.Serializer):
     username = serializers.CharField()
     password = serializers.CharField(write_only=True)
@@ -64,10 +98,19 @@ class RegisterSerializer(serializers.Serializer):
 class RideSerializer(serializers.ModelSerializer):
     offers = serializers.SerializerMethodField()
     passenger_name = serializers.SerializerMethodField()
+    passenger_lat = serializers.FloatField(read_only=True, allow_null=True)
+    passenger_lng = serializers.FloatField(read_only=True, allow_null=True)
+    driver_lat = serializers.FloatField(read_only=True, allow_null=True)
+    driver_lng = serializers.FloatField(read_only=True, allow_null=True)
+    driver_name = serializers.SerializerMethodField()
+    driver_vehicle_type = serializers.SerializerMethodField()
+    driver_vehicle_brand = serializers.SerializerMethodField()
+    driver_vehicle_color = serializers.SerializerMethodField()
+    driver_vehicle_plate = serializers.SerializerMethodField()
 
     class Meta:
         model = Ride
-        fields = ['id', 'origin', 'destination', 'origin_lat', 'origin_lng', 'destination_lat', 'destination_lng', 'distance_km', 'duration_minutes', 'vehicle_type', 'offer_amount', 'estimated_price', 'final_fare', 'status', 'passenger_name', 'offers', 'created_at']
+        fields = ['id', 'origin', 'destination', 'origin_lat', 'origin_lng', 'destination_lat', 'destination_lng', 'passenger_lat', 'passenger_lng', 'driver_lat', 'driver_lng', 'passenger_location_label', 'driver_location_label', 'live_distance_km', 'distance_km', 'duration_minutes', 'vehicle_type', 'offer_amount', 'estimated_price', 'final_fare', 'status', 'passenger_name', 'driver_name', 'driver_vehicle_type', 'driver_vehicle_brand', 'driver_vehicle_color', 'driver_vehicle_plate', 'pickup_code', 'passenger_rating', 'driver_rating', 'offers', 'created_at']
         read_only_fields = ['id', 'status', 'final_fare', 'passenger_name', 'offers', 'created_at']
 
     def validate_offer_amount(self, value):
@@ -77,6 +120,30 @@ class RideSerializer(serializers.ModelSerializer):
 
     def get_passenger_name(self, obj):
         return obj.passenger.get_full_name() or obj.passenger.username
+
+    def _driver_profile(self, obj):
+        if not obj.driver_id:
+            return None
+        return AccountProfile.objects.filter(user_id=obj.driver_id).first()
+
+    def get_driver_name(self, obj):
+        return (obj.driver.get_full_name() or obj.driver.username) if obj.driver_id else None
+
+    def get_driver_vehicle_type(self, obj):
+        profile = self._driver_profile(obj)
+        return profile.vehicle_type if profile and profile.vehicle_type else None
+
+    def get_driver_vehicle_brand(self, obj):
+        profile = self._driver_profile(obj)
+        return profile.vehicle_brand if profile and profile.vehicle_brand else None
+
+    def get_driver_vehicle_color(self, obj):
+        profile = self._driver_profile(obj)
+        return profile.vehicle_color if profile and profile.vehicle_color else None
+
+    def get_driver_vehicle_plate(self, obj):
+        profile = self._driver_profile(obj)
+        return profile.vehicle_plate if profile and profile.vehicle_plate else None
 
     def get_offers(self, obj):
         return [
@@ -90,6 +157,16 @@ class RideSerializer(serializers.ModelSerializer):
             }
             for offer in obj.offers.select_related('driver').all()
         ]
+
+    live_distance_km = serializers.SerializerMethodField()
+
+    def get_live_distance_km(self, obj):
+        if None in (obj.passenger_lat, obj.passenger_lng, obj.driver_lat, obj.driver_lng):
+            return None
+        latitude_delta = radians(float(obj.driver_lat) - float(obj.passenger_lat))
+        longitude_delta = radians(float(obj.driver_lng) - float(obj.passenger_lng))
+        haversine = sin(latitude_delta / 2) ** 2 + cos(radians(float(obj.passenger_lat))) * cos(radians(float(obj.driver_lat))) * sin(longitude_delta / 2) ** 2
+        return round(6371 * 2 * atan2(sqrt(haversine), sqrt(1 - haversine)), 2)
 
 
 class LoginView(APIView):
@@ -312,7 +389,49 @@ class RideListCreateView(generics.ListCreateAPIView):
         if role != AccountProfile.Role.PASSENGER:
             from rest_framework.exceptions import PermissionDenied
             raise PermissionDenied('Solo los pasajeros pueden solicitar viajes.')
-        serializer.save(passenger=self.request.user)
+        serializer.save(passenger=self.request.user, status=Ride.Status.SEARCHING)
+
+
+class RideOfferRejectView(APIView):
+    def post(self, request, ride_id, offer_id):
+        from drivers.models import RideOffer
+
+        offer = get_object_or_404(
+            RideOffer,
+            id=offer_id,
+            ride__id=ride_id,
+            ride__passenger=request.user,
+            status=RideOffer.Status.PENDING,
+        )
+        offer.status = RideOffer.Status.REJECTED
+        offer.save(update_fields=['status'])
+        return Response(RideSerializer(offer.ride).data)
+
+
+class RideLocationView(APIView):
+    def post(self, request, ride_id):
+        ride = get_object_or_404(Ride, id=ride_id)
+        if request.user.id not in {ride.passenger_id, ride.driver_id}:
+            return Response({'detail': 'No puedes actualizar la ubicación de este viaje.'}, status=status.HTTP_403_FORBIDDEN)
+        try:
+            latitude = round(float(request.data['latitude']), 6)
+            longitude = round(float(request.data['longitude']), 6)
+        except (KeyError, TypeError, ValueError):
+            return Response({'detail': 'latitude y longitude son obligatorias.'}, status=status.HTTP_400_BAD_REQUEST)
+        if not -90 <= latitude <= 90 or not -180 <= longitude <= 180:
+            return Response({'detail': 'Las coordenadas no son válidas.'}, status=status.HTTP_400_BAD_REQUEST)
+        if request.user.id == ride.passenger_id:
+            ride.passenger_lat = latitude
+            ride.passenger_lng = longitude
+            ride.passenger_location_label = reverse_location_label(latitude, longitude)
+            update_fields = ['passenger_lat', 'passenger_lng', 'passenger_location_label']
+        else:
+            ride.driver_lat = latitude
+            ride.driver_lng = longitude
+            ride.driver_location_label = reverse_location_label(latitude, longitude)
+            update_fields = ['driver_lat', 'driver_lng', 'driver_location_label']
+        ride.save(update_fields=update_fields)
+        return Response(RideSerializer(ride).data)
 
 
 class RideOfferSelectView(APIView):
@@ -331,7 +450,7 @@ class RideOfferSelectView(APIView):
                 ride=ride,
                 status=RideOffer.Status.PENDING,
             )
-            if ride.status not in (Ride.Status.REQUESTED, Ride.Status.NEGOTIATING):
+            if ride.status not in (Ride.Status.SEARCHING, Ride.Status.REQUESTED, Ride.Status.NEGOTIATING):
                 return Response({'detail': 'La solicitud ya no está disponible.'}, status=status.HTTP_409_CONFLICT)
 
             profile = DriverProfile.objects.select_for_update().get(user=offer.driver)
@@ -345,10 +464,81 @@ class RideOfferSelectView(APIView):
             profile.save(update_fields=['reserved_balance', 'status'])
             ride.driver = offer.driver
             ride.final_fare = offer.amount
-            ride.status = Ride.Status.DRIVER_SELECTED
-            ride.save(update_fields=['driver', 'final_fare', 'status'])
+            ride.pickup_code = secrets.token_hex(3).upper()
+            ride.status = Ride.Status.ACCEPTED
+            ride.save(update_fields=['driver', 'final_fare', 'pickup_code', 'status'])
             offer.status = RideOffer.Status.ACCEPTED
             offer.save(update_fields=['status'])
             ride.offers.exclude(id=offer.id).filter(status=RideOffer.Status.PENDING).update(status=RideOffer.Status.REJECTED)
+
+        return Response(RideSerializer(ride).data)
+
+
+class RideRatingView(APIView):
+    def post(self, request, ride_id):
+        ride = get_object_or_404(Ride, id=ride_id)
+        if request.user.id not in {ride.passenger_id, ride.driver_id}:
+            return Response({'detail': 'No puedes calificar este viaje.'}, status=status.HTTP_403_FORBIDDEN)
+        try:
+            rating = int(request.data.get('rating', 0))
+        except (TypeError, ValueError):
+            rating = 0
+        if rating < 1 or rating > 5:
+            return Response({'detail': 'La calificación debe estar entre 1 y 5 estrellas.'}, status=status.HTTP_400_BAD_REQUEST)
+        if request.user.id == ride.passenger_id:
+            if ride.passenger_rating is not None:
+                return Response({'detail': 'Ya calificaste este viaje.'}, status=status.HTTP_409_CONFLICT)
+            ride.passenger_rating = rating
+            from drivers.models import DriverProfile
+            profile = get_object_or_404(DriverProfile, user_id=ride.driver_id)
+            profile.rating_sum += rating
+            profile.rating_count += 1
+            profile.save(update_fields=['rating_sum', 'rating_count'])
+            update_fields = ['passenger_rating']
+        else:
+            if ride.driver_rating is not None:
+                return Response({'detail': 'Ya calificaste este viaje.'}, status=status.HTTP_409_CONFLICT)
+            ride.driver_rating = rating
+            update_fields = ['driver_rating']
+        ride.save(update_fields=update_fields)
+        return Response(RideSerializer(ride).data)
+
+
+class RideCancelView(APIView):
+    def post(self, request, ride_id):
+        from drivers.models import DriverProfile, RideOffer
+
+        with transaction.atomic():
+            ride = get_object_or_404(
+                Ride.objects.select_for_update(),
+                id=ride_id,
+                passenger=request.user,
+            )
+            cancellable = {
+                Ride.Status.SEARCHING,
+                Ride.Status.REQUESTED,
+                Ride.Status.NEGOTIATING,
+                Ride.Status.ACCEPTED,
+                Ride.Status.DRIVER_SELECTED,
+                Ride.Status.EN_ROUTE,
+                Ride.Status.ARRIVED,
+            }
+            if ride.status not in cancellable:
+                return Response(
+                    {'detail': 'Este viaje ya no se puede cancelar.'},
+                    status=status.HTTP_409_CONFLICT,
+                )
+            ride.status = Ride.Status.CANCELLED
+            ride.save(update_fields=['status'])
+            RideOffer.objects.filter(
+                ride=ride, status=RideOffer.Status.PENDING
+            ).update(status=RideOffer.Status.REJECTED)
+            if ride.driver_id:
+                profile = DriverProfile.objects.select_for_update().get(user_id=ride.driver_id)
+                reserved = ((ride.final_fare or ride.offer_amount or ride.estimated_price) + 9) // 10
+                profile.reserved_balance = max(0, profile.reserved_balance - reserved)
+                if profile.status == DriverProfile.Status.RESERVED_FOR_TRIP:
+                    profile.status = DriverProfile.Status.AVAILABLE
+                profile.save(update_fields=['reserved_balance', 'status'])
 
         return Response(RideSerializer(ride).data)

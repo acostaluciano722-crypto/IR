@@ -22,6 +22,8 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
   final _origin = TextEditingController(text: 'Mi ubicación actual');
   String _vehicle = 'economy';
   List<Map<String, dynamic>> _rides = [];
+  final Set<int> _dismissedRatedRideIds = <int>{};
+  final Set<int> _closedReviewRideIds = <int>{};
   List<Map<String, dynamic>> _suggestions = [];
   List<Map<String, dynamic>> _nearbyPlaces = [];
   int _points = 0;
@@ -37,6 +39,8 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
   bool _hasInitialLocation = false;
   bool _loading = false;
   bool _menuExpanded = false;
+  bool _navigationCardCondensed = false;
+  int _sheetVersion = 0;
   String? _message;
 
   @override
@@ -46,7 +50,7 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
     _loadPassengerProfile();
     _startLocationTracking();
     _rideRefreshTimer =
-        Timer.periodic(const Duration(seconds: 8), (_) => _loadRides());
+        Timer.periodic(const Duration(seconds: 5), (_) => _loadRides());
   }
 
   @override
@@ -63,7 +67,13 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
   Future<void> _loadRides() async {
     try {
       final rides = await widget.api.getRides();
-      if (mounted) setState(() => _rides = rides);
+      if (mounted) {
+        setState(() => _rides = rides
+            .where((ride) =>
+                !_closedReviewRideIds.contains(_asInt(ride['id'])) &&
+                !_dismissedRatedRideIds.contains(_asInt(ride['id'])))
+            .toList());
+      }
     } catch (_) {}
   }
 
@@ -78,6 +88,29 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
     } catch (_) {}
   }
 
+  Map<String, dynamic>? get _activeRide {
+    const activeStatuses = {
+      'requested',
+      'searching',
+      'negotiating',
+      'driver_selected',
+      'accepted',
+      'en_route',
+      'arrived',
+      'in_progress',
+      'completed',
+      'validated',
+    };
+    for (final ride in _rides) {
+      final rideId = _asInt(ride['id']);
+      if (activeStatuses.contains(ride['status']) &&
+          ride['passenger_rating'] == null &&
+          !_closedReviewRideIds.contains(rideId) &&
+          !_dismissedRatedRideIds.contains(rideId)) return ride;
+    }
+    return null;
+  }
+
   Future<void> _selectOffer(int rideId, int offerId) async {
     try {
       await widget.api.selectRideOffer(rideId, offerId);
@@ -90,6 +123,67 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
     }
   }
 
+  Future<void> _rejectOffer(int rideId, int offerId) async {
+    try {
+      await widget.api.rejectRideOffer(rideId, offerId);
+      await _loadRides();
+    } on ApiException catch (error) {
+      if (mounted) setState(() => _message = error.message);
+    }
+  }
+
+  Future<void> _rateRide(int rideId, int rating) async {
+    _closeRideReview(rideId);
+    try {
+      await widget.api.rateRide(rideId, rating);
+      _dismissedRatedRideIds.add(rideId);
+      await _loadRides();
+    } on ApiException catch (error) {
+      if (mounted) setState(() => _message = error.message);
+    }
+  }
+
+  Future<void> _skipRideRating(int rideId) async {
+    _closeRideReview(rideId);
+    _dismissedRatedRideIds.add(rideId);
+    await _loadRides();
+  }
+
+  void _closeRideReview(int rideId) {
+    _closedReviewRideIds.add(rideId);
+    _dismissedRatedRideIds.add(rideId);
+    if (!mounted) return;
+    setState(() {
+      _rides = _rides.where((ride) => _asInt(ride['id']) != rideId).toList();
+      _sheetVersion++;
+    });
+    _clearDestination();
+  }
+
+  Future<void> _cancelRide(int rideId, String reason) async {
+    try {
+      await widget.api.cancelRide(rideId, reason: reason);
+      await _loadRides();
+      if (mounted) {
+        _clearDestination(message: 'Viaje cancelado.');
+      }
+    } on ApiException catch (error) {
+      if (mounted) setState(() => _message = error.message);
+    }
+  }
+
+  void _clearDestination({String? message}) {
+    _searchDebounce?.cancel();
+    _destination.clear();
+    setState(() {
+      _selectedDestination = null;
+      _destinationLocation = null;
+      _route = null;
+      _suggestions = [];
+      _message = message;
+    });
+  }
+
   Future<void> _requestRide() async {
     if (_destination.text.trim().isEmpty) {
       setState(() => _message = 'Escribe un destino para continuar.');
@@ -98,13 +192,9 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
     var route = _route;
     var destinationLocation = _destinationLocation;
     if (destinationLocation == null || route == null) {
-      destinationLocation = _manualDestinationCoordinates(_destination.text);
-      route = _manualRoute(destinationLocation);
-      if (mounted)
-        setState(() {
-          _destinationLocation = destinationLocation;
-          _route = route;
-        });
+      setState(() => _message =
+          'Selecciona un destino de la lista para confirmar su ubicación.');
+      return;
     }
     setState(() {
       _loading = true;
@@ -112,8 +202,8 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
     });
     try {
       final fare = _decreeFareFor(_destination.text, _vehicle);
-      final distanceKm = (route['distance_km'] as num?)?.toDouble();
-      final durationMinutes = (route['duration_minutes'] as num?)?.round();
+      final distanceKm = _asDouble(route['distance_km']);
+      final durationMinutes = _asInt(route['duration_minutes']);
       if (distanceKm == null || durationMinutes == null) {
         if (mounted)
           setState(() => _message =
@@ -126,16 +216,13 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
           vehicleType: _vehicle,
           offerAmount: fare,
           estimatedPrice: fare,
-          originLat: _location.latitude,
-          originLng: _location.longitude,
-          destinationLat: destinationLocation.latitude,
-          destinationLng: destinationLocation.longitude,
+          originLat: _roundCoordinate(_location.latitude),
+          originLng: _roundCoordinate(_location.longitude),
+          destinationLat: _roundCoordinate(destinationLocation.latitude),
+          destinationLng: _roundCoordinate(destinationLocation.longitude),
           distanceKm: distanceKm,
           durationMinutes: durationMinutes);
-      _destination.clear();
       _selectedDestination = null;
-      _destinationLocation = null;
-      _route = null;
       await _loadRides();
       if (mounted)
         setState(() => _message = 'Solicitud enviada. Buscando tu conductor.');
@@ -147,33 +234,6 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
     } finally {
       if (mounted) setState(() => _loading = false);
     }
-  }
-
-  LatLng _manualDestinationCoordinates(String destination) {
-    final seed =
-        destination.trim().codeUnits.fold<int>(0, (sum, value) => sum + value);
-    final latitudeOffset = 0.008 + (seed % 12) / 10000;
-    final longitudeOffset = 0.008 + (seed % 9) / 10000;
-    return LatLng(_location.latitude + latitudeOffset,
-        _location.longitude - longitudeOffset);
-  }
-
-  Map<String, dynamic> _manualRoute(LatLng destination) {
-    final distance = Geolocator.distanceBetween(_location.latitude,
-            _location.longitude, destination.latitude, destination.longitude) /
-        1000;
-    return {
-      'distance_km': double.parse(distance.toStringAsFixed(2)),
-      'duration_minutes': (distance * 4.5).ceil().clamp(5, 90),
-      'distance_text': '${distance.toStringAsFixed(1)} km',
-      'duration_text': '${(distance * 4.5).ceil().clamp(5, 90)} min',
-      'route_points': [
-        {'lat': _location.latitude, 'lng': _location.longitude},
-        {'lat': destination.latitude, 'lng': destination.longitude},
-      ],
-      'steps': const [],
-      'manual': true,
-    };
   }
 
   int _decreeFareFor(String destination, String vehicle) {
@@ -195,8 +255,6 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
         'DANIEL LE MAITRE',
         'ALCIBIA',
         'BRUSELAS',
-        'AMBERES',
-        'ESPERANZA',
         'LA MARIA',
         'MARTINEZ MARTELO',
         'EL PRADO',
@@ -293,9 +351,7 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
       10: [
         'ZONA FRANCA',
         'TERMINAL DE TRANSPORTE NORTE',
-        'PONTEZUELA',
         'LAGUNA CLUB TERRANOVA',
-        'COLEGIO GEORGE WASHINGTON',
         'UNIVERSIDAD TADEO LOZANO',
         'PUNTA CANOA',
         'BAYUNCA'
@@ -323,6 +379,7 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
       final details = await widget.api.placeDetails(placeId);
       final coordinates = LatLng((details['lat'] as num).toDouble(),
           (details['lng'] as num).toDouble());
+      final outsideCartagena = !_isInsideCartagena(coordinates);
       final route = await widget.api.estimateRoute(
           originLat: _location.latitude,
           originLng: _location.longitude,
@@ -332,6 +389,11 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
         setState(() {
           _destinationLocation = coordinates;
           _route = route;
+          if (outsideCartagena) {
+            _vehicle = 'economy';
+            _message =
+                'Los destinos fuera de Cartagena se solicitan como Viaje.';
+          }
         });
         await _fitRoute(coordinates, route);
       }
@@ -340,15 +402,22 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
     }
   }
 
+  bool _isInsideCartagena(LatLng coordinates) {
+    return coordinates.latitude >= 10.20 &&
+        coordinates.latitude <= 10.60 &&
+        coordinates.longitude >= -75.70 &&
+        coordinates.longitude <= -75.30;
+  }
+
   void _onDestinationChanged(String value) {
-    if (_selectedDestination != null && value != _selectedDestination) {
-      setState(() {
+    setState(() {
+      if (_selectedDestination != null && value != _selectedDestination) {
         _selectedDestination = null;
         _destinationLocation = null;
         _route = null;
-        _message = null;
-      });
-    }
+      }
+      if (value.isEmpty) _message = null;
+    });
     _searchPlaces(value);
   }
 
@@ -417,9 +486,18 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
     if (mounted)
       setState(() {
         _location = next;
-        _origin.text =
-            'Ubicación actual (${next.latitude.toStringAsFixed(5)}, ${next.longitude.toStringAsFixed(5)})';
+        _origin.text = 'Ubicación actual';
       });
+    final activeRide = _activeRide;
+    if (activeRide != null && activeRide['id'] is int) {
+      await widget.api
+          .updateRideLocation(
+            rideId: activeRide['id'] as int,
+            latitude: next.latitude,
+            longitude: next.longitude,
+          )
+          .catchError((_) => <String, dynamic>{});
+    }
     if (loadNearby) {
       final nearby = await widget.api
           .nearbyPlaces(position.latitude, position.longitude)
@@ -541,6 +619,11 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
                 myLocationButtonEnabled: false,
                 myLocationEnabled: true,
                 zoomControlsEnabled: false,
+                scrollGesturesEnabled: true,
+                webGestureHandling: WebGestureHandling.greedy,
+                zoomGesturesEnabled: true,
+                rotateGesturesEnabled: true,
+                tiltGesturesEnabled: true,
                 markers: {
                   Marker(
                     markerId: const MarkerId('current-location'),
@@ -557,9 +640,22 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
                         position: _destinationLocation!,
                         icon: BitmapDescriptor.defaultMarkerWithHue(
                             BitmapDescriptor.hueYellow),
+                        zIndexInt: 2,
                         infoWindow: InfoWindow(
                             title: _destination.text,
                             snippet: 'Destino seleccionado')),
+                  if (_activeRide?['driver_lat'] != null &&
+                      _activeRide?['driver_lng'] != null)
+                    Marker(
+                      markerId: const MarkerId('driver-location'),
+                      position: LatLng(
+                        _asDouble(_activeRide!['driver_lat'])!,
+                        _asDouble(_activeRide!['driver_lng'])!,
+                      ),
+                      icon: BitmapDescriptor.defaultMarkerWithHue(
+                          BitmapDescriptor.hueAzure),
+                      infoWindow: const InfoWindow(title: 'Tu conductor'),
+                    ),
                 },
                 polylines: _routeLines,
                 style: _googleMapStyle,
@@ -577,46 +673,79 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  if (_destination.text.isNotEmpty) ...[
+                  if (_destination.text.isNotEmpty &&
+                      !_menuExpanded &&
+                      !{
+                        'accepted',
+                        'driver_selected',
+                        'en_route',
+                        'arrived',
+                        'in_progress',
+                      }.contains(_activeRide?['status'])) ...[
                     const SizedBox(height: 8),
                     _NavigationCard(
                         destination: _destination.text,
                         route: _route,
-                        nextStep: _nextStep(_route)),
+                        nextStep: _nextStep(_route),
+                        condensed: _navigationCardCondensed),
                   ],
                 ],
               ),
             ),
-            DraggableScrollableSheet(
-              initialChildSize: 0.43,
-              minChildSize: 0.36,
-              maxChildSize: 0.78,
-              snap: true,
-              builder: (context, controller) => _RideSheet(
-                controller: controller,
-                destinationController: _destination,
-                origin: _origin.text,
-                vehicle: _vehicle,
-                loading: _loading,
-                message: _message,
-                route: _route,
-                rides: _rides,
-                points: _points,
-                tier: _tier,
-                suggestions: _suggestions,
-                nearbyPlaces: _nearbyPlaces,
-                onVehicleChanged: (value) => setState(() => _vehicle = value),
-                onSuggestionSelected: (place) => _selectDestination(
-                    place['description'].toString(),
-                    place['place_id']?.toString()),
-                onNearbySelected: (place) => _selectDestination(
-                    place['name'].toString(), place['place_id']?.toString()),
-                onQueryChanged: _onDestinationChanged,
-                fare: _route == null
-                    ? null
-                    : _decreeFareFor(_destination.text, _vehicle),
-                onRequestRide: _requestRide,
-                onSelectOffer: _selectOffer,
+            Positioned.fill(
+              child: NotificationListener<DraggableScrollableNotification>(
+                onNotification: (notification) {
+                  final condensed = notification.extent >= 0.52;
+                  if (condensed != _navigationCardCondensed && mounted) {
+                    setState(() => _navigationCardCondensed = condensed);
+                  }
+                  return false;
+                },
+                child: Align(
+                  alignment: Alignment.bottomCenter,
+                  child: DraggableScrollableSheet(
+                    key: ValueKey('passenger-ride-sheet-$_sheetVersion'),
+                    expand: false,
+                    initialChildSize: 0.43,
+                    minChildSize: 0.36,
+                    maxChildSize: 0.90,
+                    snapSizes: const [0.43, 0.90],
+                    snap: true,
+                    builder: (context, controller) => _RideSheet(
+                      controller: controller,
+                      destinationController: _destination,
+                      origin: _origin.text,
+                      vehicle: _vehicle,
+                      loading: _loading,
+                      message: _message,
+                      route: _route,
+                      rides: _rides,
+                      points: _points,
+                      tier: _tier,
+                      suggestions: _suggestions,
+                      nearbyPlaces: _nearbyPlaces,
+                      activeRide: _activeRide,
+                      onVehicleChanged: (value) =>
+                          setState(() => _vehicle = value),
+                      onSuggestionSelected: (place) => _selectDestination(
+                          place['description'].toString(),
+                          place['place_id']?.toString()),
+                      onNearbySelected: (place) => _selectDestination(
+                          place['name'].toString(),
+                          place['place_id']?.toString()),
+                      onQueryChanged: _onDestinationChanged,
+                      fare: _route == null
+                          ? null
+                          : _decreeFareFor(_destination.text, _vehicle),
+                      onRequestRide: _requestRide,
+                      onSelectOffer: _selectOffer,
+                      onRejectOffer: _rejectOffer,
+                      onCancelRide: _cancelRide,
+                      onRateRide: _rateRide,
+                      onSkipRating: _skipRideRating,
+                    ),
+                  ),
+                ),
               ),
             ),
             if (_menuExpanded)
@@ -624,7 +753,8 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
                   child: GestureDetector(
                       onTap: () => setState(() => _menuExpanded = false),
                       child: Container(
-                          color: const Color(0xFF000000).withValues(alpha: .42)))),
+                          color:
+                              const Color(0xFF000000).withValues(alpha: .42)))),
             AnimatedPositioned(
                 duration: const Duration(milliseconds: 220),
                 curve: Curves.easeOutCubic,
@@ -645,6 +775,20 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
           ]),
         ),
       );
+}
+
+double? _asDouble(dynamic value) {
+  if (value is num) return value.toDouble();
+  return double.tryParse(value?.toString() ?? '');
+}
+
+double _roundCoordinate(double value) {
+  return double.parse(value.toStringAsFixed(6));
+}
+
+int? _asInt(dynamic value) {
+  if (value is num) return value.round();
+  return int.tryParse(value?.toString() ?? '');
 }
 
 List<SectionItem> _passengerSectionItems(
@@ -698,6 +842,7 @@ const _googleMapStyle = '''[
   {"elementType":"geometry","stylers":[{"color":"#11151b"}]},
   {"elementType":"labels.text.fill","stylers":[{"color":"#aeb7c2"}]},
   {"elementType":"labels.text.stroke","stylers":[{"color":"#11151b"}]},
+  {"featureType":"poi","elementType":"labels.icon","stylers":[{"visibility":"off"}]},
   {"featureType":"road","elementType":"geometry","stylers":[{"color":"#28333e"}]},
   {"featureType":"road.highway","elementType":"geometry","stylers":[{"color":"#626b75"}]},
   {"featureType":"water","elementType":"geometry","stylers":[{"color":"#091017"}]}
@@ -777,13 +922,18 @@ class _RideSheet extends StatelessWidget {
       required this.tier,
       required this.suggestions,
       required this.nearbyPlaces,
+      required this.activeRide,
       required this.fare,
       required this.onVehicleChanged,
       required this.onSuggestionSelected,
       required this.onNearbySelected,
       required this.onQueryChanged,
       required this.onRequestRide,
-      required this.onSelectOffer});
+      required this.onSelectOffer,
+      required this.onRejectOffer,
+      required this.onCancelRide,
+      required this.onRateRide,
+      required this.onSkipRating});
   final ScrollController controller;
   final TextEditingController destinationController;
   final String origin;
@@ -796,6 +946,7 @@ class _RideSheet extends StatelessWidget {
   final String tier;
   final List<Map<String, dynamic>> suggestions;
   final List<Map<String, dynamic>> nearbyPlaces;
+  final Map<String, dynamic>? activeRide;
   final int? fare;
   final ValueChanged<String> onVehicleChanged;
   final ValueChanged<Map<String, dynamic>> onSuggestionSelected;
@@ -803,15 +954,19 @@ class _RideSheet extends StatelessWidget {
   final ValueChanged<String> onQueryChanged;
   final VoidCallback onRequestRide;
   final void Function(int rideId, int offerId) onSelectOffer;
+  final void Function(int rideId, int offerId) onRejectOffer;
+  final void Function(int rideId, String reason) onCancelRide;
+  final void Function(int rideId, int rating) onRateRide;
+  final Future<void> Function(int rideId) onSkipRating;
 
   @override
   Widget build(BuildContext context) => Container(
         decoration: const BoxDecoration(
-        color: Color(0xFF111213),
+            color: Color(0xFF111213),
             borderRadius: BorderRadius.vertical(top: Radius.circular(30))),
         child: ListView(
             controller: controller,
-        padding: const EdgeInsets.fromLTRB(16, 10, 16, 30),
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 30),
             children: [
               Center(
                   child: Container(
@@ -821,58 +976,78 @@ class _RideSheet extends StatelessWidget {
                           color: Colors.white38,
                           borderRadius: BorderRadius.circular(5)))),
               const SizedBox(height: 16),
-              _VehiclePicker(selected: vehicle, onChanged: onVehicleChanged),
-              const SizedBox(height: 16),
-              _PointsCard(points: points, tier: tier),
-              const SizedBox(height: 14),
-              TextField(
-                controller: destinationController,
-                style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 17,
-                    fontWeight: FontWeight.w600),
-                decoration: InputDecoration(
-                    hintText: '¿A dónde y por cuánto?',
-                    hintStyle: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 20,
-                        fontWeight: FontWeight.w700),
-                    prefixIcon:
-                        const Icon(Icons.search, color: Colors.white, size: 31),
-                    filled: true,
-                    fillColor: const Color(0xFF303031),
-                    border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(18),
-                        borderSide: BorderSide.none),
-                    contentPadding: const EdgeInsets.symmetric(vertical: 18)),
-                onChanged: onQueryChanged,
-                onSubmitted: (_) => onRequestRide(),
-              ),
-              ...suggestions.take(5).map((place) => _PlaceRow(
-                  title: place['description'].toString(),
-                  onTap: () => onSuggestionSelected(place))),
-              if (route != null && fare != null)
-                _RouteSummary(route: route!, fare: fare!),
-              const SizedBox(height: 8),
-              _OriginRow(origin: origin),
-              if (message != null)
-                Padding(
-                    padding: const EdgeInsets.only(top: 4, left: 10),
-                    child: Text(message!,
-                        style: const TextStyle(color: Color(0xFFE8F044)))),
-              if (destinationController.text.isNotEmpty) ...[
-                const SizedBox(height: 10),
-                FilledButton(
-                    onPressed: loading ? null : onRequestRide,
-                    style: FilledButton.styleFrom(
-                        backgroundColor: const Color(0xFFE8F044),
-                        foregroundColor: const Color(0xFF171B1D),
-                        minimumSize: const Size.fromHeight(52)),
-                    child: loading
-                        ? const CircularProgressIndicator(
-                            color: Color(0xFF171B1D))
-                        : const Text('Elegir viaje',
-                            style: TextStyle(fontWeight: FontWeight.w800))),
+              if (activeRide != null)
+                _ActiveRidePanel(
+                    ride: activeRide!,
+                    onSelectOffer: onSelectOffer,
+                    onRejectOffer: onRejectOffer,
+                    onCancelRide: onCancelRide,
+                    onRateRide: onRateRide,
+                    onSkipRating: onSkipRating)
+              else ...[
+                _VehiclePicker(selected: vehicle, onChanged: onVehicleChanged),
+                const SizedBox(height: 16),
+                _PointsCard(points: points, tier: tier),
+                const SizedBox(height: 14),
+                TextField(
+                  controller: destinationController,
+                  style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 17,
+                      fontWeight: FontWeight.w600),
+                  decoration: InputDecoration(
+                      hintText: '¿A dónde y por cuánto?',
+                      hintStyle: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 20,
+                          fontWeight: FontWeight.w700),
+                      prefixIcon: const Icon(Icons.search,
+                          color: Colors.white, size: 31),
+                      suffixIcon: destinationController.text.isEmpty
+                          ? null
+                          : IconButton(
+                              tooltip: 'Borrar destino',
+                              onPressed: () {
+                                destinationController.clear();
+                                onQueryChanged('');
+                              },
+                              icon: const Icon(Icons.close,
+                                  color: Colors.white70)),
+                      filled: true,
+                      fillColor: const Color(0xFF303031),
+                      border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(18),
+                          borderSide: BorderSide.none),
+                      contentPadding: const EdgeInsets.symmetric(vertical: 18)),
+                  onChanged: onQueryChanged,
+                  onSubmitted: (_) => onRequestRide(),
+                ),
+                ...suggestions.take(5).map((place) => _PlaceRow(
+                    title: place['description'].toString(),
+                    onTap: () => onSuggestionSelected(place))),
+                if (route != null && fare != null)
+                  _RouteSummary(route: route!, fare: fare!),
+                const SizedBox(height: 8),
+                _OriginRow(origin: origin),
+                if (message != null)
+                  Padding(
+                      padding: const EdgeInsets.only(top: 4, left: 10),
+                      child: Text(message!,
+                          style: const TextStyle(color: Color(0xFFE8F044)))),
+                if (destinationController.text.isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  FilledButton(
+                      onPressed: loading ? null : onRequestRide,
+                      style: FilledButton.styleFrom(
+                          backgroundColor: const Color(0xFFE8F044),
+                          foregroundColor: const Color(0xFF171B1D),
+                          minimumSize: const Size.fromHeight(52)),
+                      child: loading
+                          ? const CircularProgressIndicator(
+                              color: Color(0xFF171B1D))
+                          : const Text('Elegir viaje',
+                              style: TextStyle(fontWeight: FontWeight.w800))),
+                ],
               ],
               if (rides.isNotEmpty) ...[
                 const SizedBox(height: 18),
@@ -884,20 +1059,655 @@ class _RideSheet extends StatelessWidget {
                 ...rides.take(3).map((ride) =>
                     _RecentRide(ride: ride, onSelectOffer: onSelectOffer)),
               ],
-              if (nearbyPlaces.isNotEmpty) ...[
-                const SizedBox(height: 18),
-                const Text('Lugares cercanos',
-                    style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 17,
-                        fontWeight: FontWeight.w700)),
-                ...nearbyPlaces.take(5).map((place) => _PlaceRow(
-                    title: place['name'].toString(),
-                    detail: _formatDistance(place['distance_meters']),
-                    onTap: () => onNearbySelected(place))),
-              ],
             ]),
       );
+}
+
+class _ActiveRidePanel extends StatefulWidget {
+  const _ActiveRidePanel(
+      {required this.ride,
+      required this.onSelectOffer,
+      required this.onRejectOffer,
+      required this.onCancelRide,
+      required this.onRateRide,
+      required this.onSkipRating});
+  final Map<String, dynamic> ride;
+  final void Function(int rideId, int offerId) onSelectOffer;
+  final void Function(int rideId, int offerId) onRejectOffer;
+  final void Function(int rideId, String reason) onCancelRide;
+  final void Function(int rideId, int rating) onRateRide;
+  final Future<void> Function(int rideId) onSkipRating;
+
+  @override
+  State<_ActiveRidePanel> createState() => _ActiveRidePanelState();
+}
+
+class _ActiveRidePanelState extends State<_ActiveRidePanel>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _searchAnimation;
+  bool _showRating = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _searchAnimation = AnimationController(
+        vsync: this, duration: const Duration(milliseconds: 6500));
+    _syncSearchAnimation();
+  }
+
+  @override
+  void didUpdateWidget(covariant _ActiveRidePanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.ride['id'] != widget.ride['id'] ||
+        oldWidget.ride['status'] != widget.ride['status']) {
+      _showRating = false;
+    }
+    _syncSearchAnimation();
+  }
+
+  void _syncSearchAnimation() {
+    final status = widget.ride['status']?.toString();
+    final searching = status == 'searching' ||
+        status == 'requested' ||
+        status == 'negotiating';
+    if (searching && !_searchAnimation.isAnimating) {
+      _searchAnimation.repeat();
+    } else if (!searching && _searchAnimation.isAnimating) {
+      _searchAnimation.stop();
+    }
+  }
+
+  @override
+  void dispose() {
+    _searchAnimation.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ride = widget.ride;
+    final status = ride['status']?.toString() ?? 'requested';
+    final offers =
+        (ride['offers'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+    final rideId = ride['id'] as int?;
+    final canSelect = status == 'searching' ||
+        status == 'requested' ||
+        status == 'negotiating';
+    if (status == 'completed' || status == 'validated') {
+      if (!_showRating) {
+        return _RideCompletionPanel(
+          ride: ride,
+          onContinue: () => setState(() => _showRating = true),
+        );
+      }
+      return _RatingPanel(
+        title: 'Califica a tu conductor',
+        personName: ride['driver_name']?.toString() ?? 'Conductor IR',
+        rideId: rideId,
+        existingRating: ride['passenger_rating'],
+        onRate: widget.onRateRide,
+        onSkip: widget.onSkipRating,
+      );
+    }
+    final searching = status == 'requested' || status == 'negotiating';
+
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text(_statusTitle(status),
+          style: const TextStyle(
+              color: Colors.white, fontSize: 23, fontWeight: FontWeight.w800)),
+      const SizedBox(height: 6),
+      Text(_statusDescription(status),
+          style: const TextStyle(color: Colors.white70, fontSize: 15)),
+      const SizedBox(height: 16),
+      ClipRRect(
+          borderRadius: BorderRadius.circular(4),
+          child: searching
+              ? AnimatedBuilder(
+                  animation: _searchAnimation,
+                  builder: (context, child) => LinearProgressIndicator(
+                      value: _searchAnimation.value,
+                      minHeight: 5,
+                      backgroundColor: const Color(0xFF343638),
+                      color: const Color(0xFFE8F044)))
+              : LinearProgressIndicator(
+                  value: _statusProgress(status),
+                  minHeight: 5,
+                  backgroundColor: const Color(0xFF343638),
+                  color: const Color(0xFFE8F044))),
+      const SizedBox(height: 16),
+      Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+            color: const Color(0xFF202122),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: const Color(0xFF2D2E2F))),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(_vehicleLabel(ride['vehicle_type']?.toString()),
+              style: const TextStyle(color: Colors.white70, fontSize: 13)),
+          const SizedBox(height: 6),
+          Text(_rideMessage(status, ride),
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 20,
+                  height: 1.15,
+                  fontWeight: FontWeight.w800)),
+          const SizedBox(height: 14),
+          Row(children: [
+            const Icon(Icons.my_location, color: Color(0xFFE8F044), size: 20),
+            const SizedBox(width: 9),
+            Expanded(
+                child: Text(_displayOrigin(ride['origin']?.toString()),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: Colors.white70))),
+          ]),
+          const SizedBox(height: 8),
+          Row(children: [
+            const Icon(Icons.location_on, color: Color(0xFFE8F044), size: 20),
+            const SizedBox(width: 9),
+            Expanded(
+                child: Text(ride['destination']?.toString() ?? 'Destino',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                        color: Colors.white, fontWeight: FontWeight.w600))),
+          ]),
+          if (status == 'accepted') ...[
+            const SizedBox(height: 16),
+            _DriverInfoPanel(ride: ride),
+          ],
+          if (ride['driver_lat'] != null && ride['driver_lng'] != null) ...[
+            const SizedBox(height: 12),
+            _LiveDistanceRow(
+              label: 'Distancia al conductor',
+              distanceKm: ride['live_distance_km'],
+            ),
+          ],
+          const SizedBox(height: 14),
+          Row(children: [
+            Text(
+                'COP ${ride['final_fare'] == 0 ? ride['offer_amount'] : ride['final_fare']}',
+                style: const TextStyle(
+                    color: Color(0xFFE8F044), fontWeight: FontWeight.w800)),
+            const SizedBox(width: 12),
+            Text('${ride['distance_km']} km · ${ride['duration_minutes']} min',
+                style: const TextStyle(color: Colors.white54)),
+          ]),
+        ]),
+      ),
+      if (offers.isNotEmpty) ...[
+        const SizedBox(height: 18),
+        const Text('Ofertas de conductores',
+            style: TextStyle(
+                color: Colors.white,
+                fontSize: 17,
+                fontWeight: FontWeight.w700)),
+        const SizedBox(height: 8),
+        ...offers.map((offer) => _OfferTile(
+              offer: offer,
+              enabled:
+                  canSelect && rideId != null && offer['status'] == 'pending',
+              onSelect: () => widget.onSelectOffer(rideId!, offer['id'] as int),
+              onReject: () => widget.onRejectOffer(rideId!, offer['id'] as int),
+            )),
+      ],
+      const SizedBox(height: 18),
+      OutlinedButton(
+          onPressed: () => _showCancelFlow(context, rideId),
+          style: OutlinedButton.styleFrom(
+              foregroundColor: const Color(0xFFFF6B6B),
+              minimumSize: const Size.fromHeight(52),
+              side: const BorderSide(color: Color(0xFF6F3030)),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14))),
+          child: const Text('Cancelar viaje',
+              style: TextStyle(fontWeight: FontWeight.w800))),
+    ]);
+  }
+
+  Future<void> _showCancelFlow(BuildContext context, int? rideId) async {
+    if (rideId == null) return;
+    final reason = await showModalBottomSheet<String>(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: const Color(0xFF171819),
+        shape: const RoundedRectangleBorder(
+            borderRadius: BorderRadius.vertical(top: Radius.circular(28))),
+        builder: (_) => const _CancelRideSheet());
+    if (reason != null && context.mounted) {
+      widget.onCancelRide(rideId, reason);
+    }
+  }
+}
+
+class _CancelRideSheet extends StatefulWidget {
+  const _CancelRideSheet();
+
+  @override
+  State<_CancelRideSheet> createState() => _CancelRideSheetState();
+}
+
+class _CancelRideSheetState extends State<_CancelRideSheet> {
+  String? _reason;
+
+  static const _reasons = [
+    'Lo solicité por error',
+    'Seleccioné un punto de partida incorrecto',
+    'Solicité un vehículo incorrecto',
+    'El tiempo de espera fue demasiado',
+    'Seleccioné un destino incorrecto',
+    'Otro',
+  ];
+
+  @override
+  Widget build(BuildContext context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(22, 18, 22, 20),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Container(
+                width: 42,
+                height: 5,
+                decoration: BoxDecoration(
+                    color: Colors.white38,
+                    borderRadius: BorderRadius.circular(4))),
+            const SizedBox(height: 20),
+            const Text('¿Quieres cancelar el viaje?',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 24,
+                    fontWeight: FontWeight.w800)),
+            const SizedBox(height: 8),
+            const Align(
+                alignment: Alignment.centerLeft,
+                child: Text('¿Por qué quieres cancelar? Opcional',
+                    style: TextStyle(color: Colors.white70, fontSize: 15))),
+            const SizedBox(height: 10),
+            ..._reasons.map((reason) => RadioListTile<String>(
+                  value: reason,
+                  groupValue: _reason,
+                  activeColor: const Color(0xFFE8F044),
+                  contentPadding: EdgeInsets.zero,
+                  title:
+                      Text(reason, style: const TextStyle(color: Colors.white)),
+                  onChanged: (value) => setState(() => _reason = value),
+                )),
+            const SizedBox(height: 10),
+            SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                    onPressed: () => Navigator.of(context).pop(_reason ?? ''),
+                    style: FilledButton.styleFrom(
+                        backgroundColor: const Color(0xFFFF5D5D),
+                        foregroundColor: const Color(0xFF171B1D),
+                        minimumSize: const Size.fromHeight(54)),
+                    child: const Text('Cancelar viaje',
+                        style: TextStyle(fontWeight: FontWeight.w800)))),
+            const SizedBox(height: 8),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Conservar mi viaje',
+                  style: TextStyle(color: Colors.white70)),
+            ),
+          ]),
+        ),
+      );
+}
+
+class _OfferTile extends StatelessWidget {
+  const _OfferTile(
+      {required this.offer,
+      required this.enabled,
+      required this.onSelect,
+      required this.onReject});
+  final Map<String, dynamic> offer;
+  final bool enabled;
+  final VoidCallback onSelect;
+  final VoidCallback onReject;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        margin: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.fromLTRB(12, 12, 8, 12),
+        decoration: BoxDecoration(
+            color: const Color(0xFF191A1B),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: const Color(0xFF343638))),
+        child: Row(children: [
+          const CircleAvatar(
+              backgroundColor: Color(0xFFE8F044),
+              foregroundColor: Color(0xFF171B1D),
+              child: Icon(Icons.person, size: 20)),
+          const SizedBox(width: 10),
+          Expanded(
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                Text(offer['driver_name']?.toString() ?? 'Conductor IR',
+                    style: const TextStyle(
+                        color: Colors.white, fontWeight: FontWeight.w700)),
+                Text('${offer['amount']} COP · ${offer['status']}',
+                    style:
+                        const TextStyle(color: Colors.white60, fontSize: 12)),
+              ])),
+          if (enabled)
+            Column(children: [
+              TextButton(
+                  onPressed: onSelect,
+                  style: TextButton.styleFrom(
+                      foregroundColor: const Color(0xFFE8F044)),
+                  child: const Text('Aceptar')),
+              TextButton(
+                  onPressed: onReject,
+                  style: TextButton.styleFrom(foregroundColor: Colors.white60),
+                  child: const Text('Rechazar')),
+            ]),
+        ]),
+      );
+}
+
+class _LiveDistanceRow extends StatelessWidget {
+  const _LiveDistanceRow({required this.label, required this.distanceKm});
+
+  final String label;
+  final dynamic distanceKm;
+
+  @override
+  Widget build(BuildContext context) {
+    final distance = distanceKm is num
+        ? distanceKm.toDouble().toStringAsFixed(2)
+        : 'calculando';
+    return Row(children: [
+      const Icon(Icons.near_me_outlined, color: Color(0xFFE8F044), size: 20),
+      const SizedBox(width: 9),
+      Text('$label: $distance km',
+          style: const TextStyle(
+              color: Colors.white, fontWeight: FontWeight.w700)),
+    ]);
+  }
+}
+
+class _RideCompletionPanel extends StatelessWidget {
+  const _RideCompletionPanel({required this.ride, required this.onContinue});
+
+  final Map<String, dynamic> ride;
+  final VoidCallback onContinue;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.fromLTRB(18, 20, 18, 22),
+        decoration: BoxDecoration(
+            color: const Color(0xFF202122),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: const Color(0xFF343638))),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Text('Resumen de tu viaje',
+              style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 21,
+                  fontWeight: FontWeight.w800)),
+          const SizedBox(height: 16),
+          _SummaryRow(
+              icon: Icons.my_location,
+              label: 'Origen',
+              value: ride['origin']?.toString() ?? 'Ubicación actual'),
+          const SizedBox(height: 10),
+          _SummaryRow(
+              icon: Icons.location_on,
+              label: 'Destino',
+              value: ride['destination']?.toString() ?? 'Destino'),
+          const SizedBox(height: 10),
+          _SummaryRow(
+              icon: Icons.payments_outlined,
+              label: 'Total',
+              value:
+                  'COP ${ride['final_fare'] == 0 ? ride['offer_amount'] : ride['final_fare']}'),
+          const SizedBox(height: 10),
+          _SummaryRow(
+              icon: Icons.route,
+              label: 'Recorrido',
+              value:
+                  '${ride['distance_km']} km · ${ride['duration_minutes']} min'),
+          const SizedBox(height: 18),
+          SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                  onPressed: onContinue,
+                  style: FilledButton.styleFrom(
+                      backgroundColor: const Color(0xFFE8F044),
+                      foregroundColor: const Color(0xFF171B1D),
+                      minimumSize: const Size.fromHeight(48)),
+                  child: const Text('Continuar'))),
+        ]),
+      );
+}
+
+class _SummaryRow extends StatelessWidget {
+  const _SummaryRow(
+      {required this.icon, required this.label, required this.value});
+
+  final IconData icon;
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) => Row(children: [
+        Icon(icon, color: const Color(0xFFE8F044), size: 20),
+        const SizedBox(width: 9),
+        Expanded(
+            child: RichText(
+                text: TextSpan(
+                    style: const TextStyle(color: Colors.white70),
+                    children: [
+              TextSpan(
+                  text: '$label: ',
+                  style: const TextStyle(fontWeight: FontWeight.w700)),
+              TextSpan(text: value),
+            ]))),
+      ]);
+}
+
+class _RatingPanel extends StatefulWidget {
+  const _RatingPanel(
+      {required this.title,
+      required this.personName,
+      required this.rideId,
+      required this.existingRating,
+      required this.onRate,
+      required this.onSkip});
+  final String title;
+  final String personName;
+  final int? rideId;
+  final dynamic existingRating;
+  final void Function(int rideId, int rating) onRate;
+  final Future<void> Function(int rideId) onSkip;
+
+  @override
+  State<_RatingPanel> createState() => _RatingPanelState();
+}
+
+class _RatingPanelState extends State<_RatingPanel> {
+  int _rating = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _rating = (widget.existingRating as num?)?.toInt() ?? 0;
+  }
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.fromLTRB(18, 20, 18, 22),
+        decoration: BoxDecoration(
+            color: const Color(0xFF202122),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: const Color(0xFF343638))),
+        child: Column(children: [
+          Text(widget.title,
+              style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 21,
+                  fontWeight: FontWeight.w800)),
+          const SizedBox(height: 16),
+          const CircleAvatar(
+              radius: 34,
+              backgroundColor: Color(0xFFE8F044),
+              child: Icon(Icons.person, color: Color(0xFF171B1D), size: 34)),
+          const SizedBox(height: 10),
+          Text(widget.personName,
+              style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 17,
+                  fontWeight: FontWeight.w700)),
+          const SizedBox(height: 12),
+          Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: List.generate(
+                  5,
+                  (index) => IconButton(
+                        onPressed: widget.rideId == null
+                            ? null
+                            : () => setState(() => _rating = index + 1),
+                        icon: Icon(
+                            index < _rating ? Icons.star : Icons.star_border,
+                            color: index < _rating
+                                ? const Color(0xFFE8F044)
+                                : Colors.white54,
+                            size: 34),
+                        tooltip: '${index + 1} estrellas',
+                      ))),
+          const SizedBox(height: 8),
+          FilledButton(
+              onPressed: widget.rideId != null &&
+                      _rating > 0 &&
+                      widget.existingRating == null
+                  ? () => widget.onRate(widget.rideId!, _rating)
+                  : null,
+              style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFFE8F044),
+                  foregroundColor: const Color(0xFF171B1D),
+                  minimumSize: const Size.fromHeight(48)),
+              child: Text(widget.existingRating == null
+                  ? 'Guardar calificación'
+                  : 'Calificación enviada')),
+          TextButton(
+              onPressed: widget.rideId == null
+                  ? null
+                  : () => widget.onSkip(widget.rideId!),
+              child: const Text('Omitir por ahora')),
+        ]),
+      );
+}
+
+class _DriverInfoPanel extends StatelessWidget {
+  const _DriverInfoPanel({required this.ride});
+
+  final Map<String, dynamic> ride;
+
+  String _value(dynamic value) => value?.toString().trim().isNotEmpty == true
+      ? value.toString()
+      : 'No registrado';
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+            color: const Color(0xFF191A1B),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: const Color(0xFF343638))),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Text('Tu conductor',
+              style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 17,
+                  fontWeight: FontWeight.w800)),
+          const SizedBox(height: 8),
+          Text(_value(ride['driver_name']),
+              style: const TextStyle(
+                  color: Colors.white, fontWeight: FontWeight.w700)),
+          Text('Vehículo: ${_value(ride['driver_vehicle_type'])}'),
+          Text('Marca: ${_value(ride['driver_vehicle_brand'])}'),
+          Text('Color: ${_value(ride['driver_vehicle_color'])}'),
+          Text('Placa: ${_value(ride['driver_vehicle_plate'])}'),
+          const SizedBox(height: 12),
+          Text('Código de encuentro: ${_value(ride['pickup_code'])}',
+              style: const TextStyle(
+                  color: Color(0xFFE8F044), fontWeight: FontWeight.w800)),
+        ]),
+      );
+}
+
+String _statusTitle(String status) {
+  switch (status) {
+    case 'accepted':
+      return 'Conductor confirmado';
+    case 'negotiating':
+      return 'Buscando conductores';
+    case 'driver_selected':
+      return 'Conductor confirmado';
+    case 'en_route':
+      return 'Yendo a tu destino';
+    case 'arrived':
+      return 'Tu conductor llegó';
+    case 'in_progress':
+      return 'Viaje en curso';
+    default:
+      return 'Solicitud enviada';
+  }
+}
+
+String _statusDescription(String status) {
+  switch (status) {
+    case 'accepted':
+      return 'Comparte el código de encuentro con tu conductor.';
+    case 'driver_selected':
+      return 'Tu reserva fue confirmada.';
+    case 'en_route':
+      return 'Yendo a tu destino.';
+    case 'arrived':
+      return 'Encuéntralo en tu punto de partida.';
+    case 'in_progress':
+      return 'Disfruta el trayecto hasta tu destino.';
+    case 'negotiating':
+      return 'Estamos comparando ofertas cercanas para ti.';
+    default:
+      return 'Estamos buscando conductores cerca de ti.';
+  }
+}
+
+double _statusProgress(String status) {
+  const values = {
+    'requested': .18,
+    'negotiating': .35,
+    'driver_selected': .55,
+    'en_route': .72,
+    'arrived': .84,
+    'in_progress': .95,
+  };
+  return values[status] ?? .18;
+}
+
+String _vehicleLabel(String? vehicle) {
+  const labels = {
+    'economy': 'Detalles de Viaje',
+    'moto': 'Detalles de Moto',
+    'plus': 'Detalles de Viaje+',
+    'comfort': 'Detalles de Comfort',
+  };
+  return labels[vehicle] ?? 'Detalles del viaje';
+}
+
+String _rideMessage(String status, Map<String, dynamic> ride) {
+  final destination = ride['destination']?.toString() ?? 'tu destino';
+  if (status == 'arrived') return 'Espera en el punto de partida';
+  if (status == 'in_progress') return 'Viaje hacia $destination';
+  if (status == 'driver_selected') {
+    return 'Tu conductor se dirige a recogerte';
+  }
+  if (status == 'en_route') return 'Yendo a tu destino';
+  return 'Espera mientras encontramos tu conductor';
 }
 
 class _VehiclePicker extends StatelessWidget {
@@ -913,7 +1723,7 @@ class _VehiclePicker extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => SizedBox(
-      height: 88,
+        height: 88,
         child: ListView.separated(
           scrollDirection: Axis.horizontal,
           itemCount: options.length,
@@ -925,17 +1735,17 @@ class _VehiclePicker extends StatelessWidget {
               onTap: () => onChanged(option.$1),
               child: AnimatedContainer(
                   duration: const Duration(milliseconds: 180),
-                width: 96,
-                padding: const EdgeInsets.fromLTRB(8, 9, 8, 8),
+                  width: 96,
+                  padding: const EdgeInsets.fromLTRB(8, 9, 8, 8),
                   decoration: BoxDecoration(
                       color: active
                           ? const Color(0xFFE8F044)
-                    : const Color(0xFF191A1B),
+                          : const Color(0xFF191A1B),
                       borderRadius: BorderRadius.circular(16),
                       border: Border.all(
                           color: active
                               ? const Color(0xFFE8F044)
-                      : const Color(0xFF3A3B3C))),
+                              : const Color(0xFF3A3B3C))),
                   child: Column(children: [
                     Icon(option.$3,
                         color:
@@ -956,10 +1766,9 @@ class _VehiclePicker extends StatelessWidget {
 }
 
 class _PlaceRow extends StatelessWidget {
-  const _PlaceRow({required this.title, required this.onTap, this.detail});
+  const _PlaceRow({required this.title, required this.onTap});
   final String title;
   final VoidCallback onTap;
-  final String? detail;
   @override
   Widget build(BuildContext context) => InkWell(
       onTap: onTap,
@@ -978,22 +1787,15 @@ class _PlaceRow extends StatelessWidget {
                           color: Colors.white,
                           fontSize: 16,
                           fontWeight: FontWeight.w600)),
-                  if (detail != null)
-                    Text(detail!,
-                        style: const TextStyle(
-                            color: Color(0xFFE8F044),
-                            fontSize: 12,
-                            fontWeight: FontWeight.w700))
                 ]))
           ])));
 }
 
-String _formatDistance(dynamic meters) {
-  final value = (meters as num?)?.toDouble();
-  if (value == null) return '';
-  return value < 1000
-      ? '${value.round()} m'
-      : '${(value / 1000).toStringAsFixed(1)} km';
+String _displayOrigin(String? origin) {
+  final value = origin?.trim() ?? '';
+  final coordinateStart = value.indexOf(' (');
+  if (coordinateStart >= 0) return value.substring(0, coordinateStart);
+  return value.isEmpty ? 'Ubicación actual' : value;
 }
 
 class _OriginRow extends StatelessWidget {
@@ -1022,11 +1824,11 @@ class _PointsCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-      padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 11),
+        padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 11),
         decoration: BoxDecoration(
-        color: const Color(0xFF191A1B),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFF2B2C2D))),
+            color: const Color(0xFF191A1B),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: const Color(0xFF2B2C2D))),
         child: Row(children: [
           const Icon(Icons.stars, color: Color(0xFFE8F044), size: 28),
           const SizedBox(width: 10),
@@ -1040,7 +1842,7 @@ class _PointsCard extends StatelessWidget {
                     style: const TextStyle(
                         color: Colors.white, fontWeight: FontWeight.w800)),
               ])),
-            const Text('COP 20 = 1 PI',
+          const Text('COP 20 = 1 PI',
               style: TextStyle(color: Colors.white54, fontSize: 10)),
         ]),
       );
@@ -1069,7 +1871,8 @@ class _RecentRide extends StatelessWidget {
           const Icon(Icons.route, color: Color(0xFFE8F044)),
           const SizedBox(width: 8),
           Expanded(
-              child: Text('${ride['origin']} → ${ride['destination']}',
+              child: Text(
+                  '${_displayOrigin(ride['origin']?.toString())} → ${ride['destination']}',
                   style: const TextStyle(
                       color: Colors.white, fontWeight: FontWeight.w700))),
           Text('\$${ride['offer_amount']}',
@@ -1112,9 +1915,9 @@ class _RouteSummary extends StatelessWidget {
         margin: const EdgeInsets.only(top: 10),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         decoration: BoxDecoration(
-          color: const Color(0xFF202122),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: const Color(0xFF2D2E2F))),
+            color: const Color(0xFF202122),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: const Color(0xFF2D2E2F))),
         child: Row(children: [
           const Icon(Icons.route, color: Color(0xFFE8F044)),
           const SizedBox(width: 10),
@@ -1132,40 +1935,37 @@ class _RouteSummary extends StatelessWidget {
 
 class _NavigationCard extends StatelessWidget {
   const _NavigationCard(
-      {required this.destination, required this.route, required this.nextStep});
+      {required this.destination,
+      required this.route,
+      required this.nextStep,
+      required this.condensed});
   final String destination;
   final Map<String, dynamic>? route;
   final Map<String, dynamic>? nextStep;
+  final bool condensed;
 
   @override
-  Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+  Widget build(BuildContext context) => AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOutCubic,
+        padding:
+            EdgeInsets.symmetric(horizontal: 16, vertical: condensed ? 7 : 12),
         decoration: BoxDecoration(
-          color: const Color(0xFF111213).withValues(alpha: .97),
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: const Color(0xFF2D2E2F))),
+            color: const Color(0xFF111213).withValues(alpha: .97),
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: const Color(0xFF2D2E2F))),
         child: Row(children: [
           Icon(_maneuverIcon(nextStep?['maneuver']?.toString()),
-              color: const Color(0xFFE8F044), size: 24),
-          const SizedBox(width: 12),
+              color: const Color(0xFFE8F044), size: condensed ? 20 : 24),
+          SizedBox(width: condensed ? 8 : 12),
           Expanded(
-              child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                Text(nextStep?['instruction']?.toString() ?? destination,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 15,
-                        fontWeight: FontWeight.w800)),
-                if (nextStep != null)
-                  Text('${nextStep!['distance_text']} · hacia $destination',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style:
-                          const TextStyle(color: Colors.white70, fontSize: 12)),
-              ])),
+              child: Text(destination,
+                  maxLines: condensed ? 1 : 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                      color: Colors.white,
+                      fontSize: condensed ? 14 : 15,
+                      fontWeight: FontWeight.w800))),
           if (route != null)
             Text(route!['duration_text']?.toString() ?? '',
                 style: const TextStyle(
@@ -1193,11 +1993,11 @@ class _RoundAction extends StatelessWidget {
       child: InkWell(
           onTap: onPressed,
           customBorder: const CircleBorder(),
-        child: Container(
+          child: Container(
               width: 58,
               height: 58,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            border: Border.all(color: const Color(0xFF343638))),
+              decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(color: const Color(0xFF343638))),
               child: Icon(icon, color: Colors.white, size: 29))));
 }
