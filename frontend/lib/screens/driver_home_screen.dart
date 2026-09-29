@@ -132,7 +132,9 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
         permission = await Geolocator.requestPermission();
       }
       if (permission == LocationPermission.denied ||
-          permission == LocationPermission.deniedForever) return null;
+          permission == LocationPermission.deniedForever) {
+        return null;
+      }
       _locationPermissionChecked = true;
     }
     return Geolocator.getCurrentPosition();
@@ -173,9 +175,10 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
       await _loadMyRides();
       await _loadProfile();
     } on ApiException catch (error) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text(error.message)));
+      }
     }
   }
 
@@ -271,10 +274,11 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
     _refreshing = true;
     try {
       final rides = await widget.api.getDriverAvailableRides();
-      if (mounted)
+      if (mounted) {
         setState(() {
           _availableRides = rides;
         });
+      }
     } catch (e) {
       // error handling
     } finally {
@@ -340,16 +344,24 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
           );
         });
 
+    if (!mounted) {
+      return;
+    }
+
     if (result != null) {
       try {
         await widget.api.driverRideOffer(rideId, result);
-        ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Oferta enviada con éxito')));
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Oferta enviada con éxito')));
+        }
         _loadAvailableRides();
         _loadMyRides();
       } catch (e) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(e.toString())));
+        if (mounted) {
+          ScaffoldMessenger.of(context)
+              .showSnackBar(SnackBar(content: Text(e.toString())));
+        }
       }
     }
   }
@@ -357,6 +369,9 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
   Future<void> _acceptRide(int rideId) async {
     try {
       await widget.api.driverAcceptRide(rideId);
+      if (!mounted) {
+        return;
+      }
       ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Aceptaste el precio propuesto.')));
       await _loadAvailableRides();
@@ -384,12 +399,17 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
   Future<void> _rechargeWallet() async {
     try {
       await widget.api.driverWalletRecharge(50000);
+      if (!mounted) {
+        return;
+      }
       ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Recargaste \$50,000 COP')));
       _loadProfile();
     } catch (e) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(e.toString())));
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.toString())));
+      }
     }
   }
 
@@ -600,13 +620,14 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
 
   List<SectionItem> _driverSectionItems(String section) {
     if (section == 'history') {
-      if (_myRides.isEmpty)
+      if (_myRides.isEmpty) {
         return const [
           SectionItem(
               icon: Icons.inbox_outlined,
               title: 'Sin viajes asignados',
               description: 'Los viajes seleccionados aparecerán aquí.')
         ];
+      }
       return _myRides
           .map((ride) => SectionItem(
               icon: Icons.route,
@@ -615,7 +636,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                   'Estado: ${ride['status']} · Tarifa: COP ${ride['final_fare'] == 0 ? ride['offer_amount'] : ride['final_fare']}'))
           .toList();
     }
-    if (section == 'support')
+    if (section == 'support') {
       return const [
         SectionItem(
             icon: Icons.help_outline,
@@ -627,6 +648,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
             description:
                 'La seguridad tiene prioridad sobre la continuidad del viaje.')
       ];
+    }
     return [
       SectionItem(
           icon: Icons.person_outline,
@@ -646,8 +668,9 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
     }
     final active = _activeRideCard();
     if (active != null) return active;
-    if (_availableRides.isEmpty)
+    if (_availableRides.isEmpty) {
       return const Center(child: Text('Buscando viajes cercanos...'));
+    }
     return Column(
       children: _availableRides.map((ride) {
         final passengerOrigin = _passengerOriginLabel(ride);
