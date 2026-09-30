@@ -80,11 +80,12 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
   Future<void> _loadPassengerProfile() async {
     try {
       final profile = await widget.api.getPassengerMe();
-      if (mounted)
+      if (mounted) {
         setState(() {
           _points = profile['points'] ?? 0;
           _tier = profile['tier'] ?? 'Inicial';
         });
+      }
     } catch (_) {}
   }
 
@@ -106,7 +107,9 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
       if (activeStatuses.contains(ride['status']) &&
           ride['passenger_rating'] == null &&
           !_closedReviewRideIds.contains(rideId) &&
-          !_dismissedRatedRideIds.contains(rideId)) return ride;
+          !_dismissedRatedRideIds.contains(rideId)) {
+        return ride;
+      }
     }
     return null;
   }
@@ -115,9 +118,10 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
     try {
       await widget.api.selectRideOffer(rideId, offerId);
       await _loadRides();
-      if (mounted)
+      if (mounted) {
         setState(() =>
             _message = 'Conductor seleccionado. La reserva fue confirmada.');
+      }
     } on ApiException catch (error) {
       if (mounted) setState(() => _message = error.message);
     }
@@ -205,9 +209,10 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
       final distanceKm = _asDouble(route['distance_km']);
       final durationMinutes = _asInt(route['duration_minutes']);
       if (distanceKm == null || durationMinutes == null) {
-        if (mounted)
+        if (mounted) {
           setState(() => _message =
               'La ruta no tiene datos suficientes para solicitar el viaje.');
+        }
         return;
       }
       await widget.api.requestRide(
@@ -224,13 +229,15 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
           durationMinutes: durationMinutes);
       _selectedDestination = null;
       await _loadRides();
-      if (mounted)
+      if (mounted) {
         setState(() => _message = 'Solicitud enviada. Buscando tu conductor.');
+      }
     } on ApiException catch (error) {
       if (mounted) setState(() => _message = error.message);
     } catch (error) {
-      if (mounted)
+      if (mounted) {
         setState(() => _message = 'No se pudo enviar la solicitud: $error');
+      }
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -440,18 +447,21 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
   Future<void> _startLocationTracking() async {
     try {
       if (!await Geolocator.isLocationServiceEnabled()) {
-        if (mounted)
+        if (mounted) {
           setState(() => _message = 'Activa la ubicación del dispositivo.');
+        }
         return;
       }
       var permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied)
+      if (permission == LocationPermission.denied) {
         permission = await Geolocator.requestPermission();
+      }
       if (permission == LocationPermission.denied ||
           permission == LocationPermission.deniedForever) {
-        if (mounted)
+        if (mounted) {
           setState(() => _message =
               'Permite la ubicación para mantener tu posición activa.');
+        }
         return;
       }
       await _locationSubscription?.cancel();
@@ -467,8 +477,9 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
                   accuracy: LocationAccuracy.high, distanceFilter: 10))
           .listen((position) => _updateLocation(position));
     } catch (_) {
-      if (mounted)
+      if (mounted) {
         setState(() => _message = 'No se pudo obtener tu ubicación actual.');
+      }
     }
   }
 
@@ -483,11 +494,12 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
   Future<void> _updateLocation(Position position,
       {bool loadNearby = false}) async {
     final next = LatLng(position.latitude, position.longitude);
-    if (mounted)
+    if (mounted) {
       setState(() {
         _location = next;
         _origin.text = 'Ubicación actual';
       });
+    }
     final activeRide = _activeRide;
     if (activeRide != null && activeRide['id'] is int) {
       await widget.api
@@ -600,7 +612,9 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
       if (endLat == null || endLng == null) continue;
       if (Geolocator.distanceBetween(
               _location.latitude, _location.longitude, endLat, endLng) >
-          45) return step;
+          45) {
+        return step;
+      }
     }
     return steps.isEmpty ? null : steps.last;
   }
@@ -798,7 +812,7 @@ List<SectionItem> _passengerSectionItems(
     int points,
     String tier) {
   if (section == 'history') {
-    if (rides.isEmpty)
+    if (rides.isEmpty) {
       return const [
         SectionItem(
             icon: Icons.inbox_outlined,
@@ -806,6 +820,7 @@ List<SectionItem> _passengerSectionItems(
             description:
                 'Tus viajes aparecerán aquí cuando completes una solicitud.')
       ];
+    }
     return rides
         .map((ride) => SectionItem(
             icon: Icons.route,
@@ -814,7 +829,7 @@ List<SectionItem> _passengerSectionItems(
                 'Estado: ${ride['status']} · Tarifa: COP ${ride['final_fare'] == 0 ? ride['offer_amount'] : ride['final_fare']}'))
         .toList();
   }
-  if (section == 'support')
+  if (section == 'support') {
     return const [
       SectionItem(
           icon: Icons.help_outline,
@@ -826,6 +841,7 @@ List<SectionItem> _passengerSectionItems(
           title: 'Centro de seguridad',
           description: 'Los reportes de seguridad tienen atención prioritaria.')
     ];
+  }
   return [
     SectionItem(
         icon: Icons.person_outline,
@@ -1325,15 +1341,21 @@ class _CancelRideSheetState extends State<_CancelRideSheet> {
                 child: Text('¿Por qué quieres cancelar? Opcional',
                     style: TextStyle(color: Colors.white70, fontSize: 15))),
             const SizedBox(height: 10),
-            ..._reasons.map((reason) => RadioListTile<String>(
-                  value: reason,
-                  groupValue: _reason,
-                  activeColor: const Color(0xFFE8F044),
-                  contentPadding: EdgeInsets.zero,
-                  title:
-                      Text(reason, style: const TextStyle(color: Colors.white)),
-                  onChanged: (value) => setState(() => _reason = value),
-                )),
+            RadioGroup<String>(
+              groupValue: _reason,
+              onChanged: (value) => setState(() => _reason = value),
+              child: Column(
+                children: _reasons
+                    .map((reason) => RadioListTile<String>(
+                          value: reason,
+                          activeColor: const Color(0xFFE8F044),
+                          contentPadding: EdgeInsets.zero,
+                          title: Text(reason,
+                              style: const TextStyle(color: Colors.white)),
+                        ))
+                    .toList(),
+              ),
+            ),
             const SizedBox(height: 10),
             SizedBox(
                 width: double.infinity,

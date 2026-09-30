@@ -98,9 +98,10 @@ class ApiService {
     final response =
         await http.get(Uri.parse('$baseUrl/passenger/me/'), headers: _headers);
     final data = _decode(response);
-    if (response.statusCode != 200)
+    if (response.statusCode != 200) {
       throw ApiException(
           data['detail']?.toString() ?? 'No fue posible cargar tus puntos.');
+    }
     return data as Map<String, dynamic>;
   }
 
@@ -123,9 +124,10 @@ class ApiService {
         .replace(queryParameters: {'place_id': placeId});
     final response = await http.get(uri, headers: _headers);
     final data = _decode(response);
-    if (response.statusCode != 200)
+    if (response.statusCode != 200) {
       throw ApiException(
           data['detail']?.toString() ?? 'No fue posible obtener el lugar.');
+    }
     return data as Map<String, dynamic>;
   }
 
@@ -143,9 +145,10 @@ class ApiService {
     });
     final response = await http.get(uri, headers: _headers);
     final data = _decode(response);
-    if (response.statusCode != 200)
+    if (response.statusCode != 200) {
       throw ApiException(
           data['detail']?.toString() ?? 'No fue posible calcular la ruta.');
+    }
     return data as Map<String, dynamic>;
   }
 
@@ -155,9 +158,10 @@ class ApiService {
         .replace(queryParameters: {'lat': '$latitude', 'lng': '$longitude'});
     final response = await http.get(uri, headers: _headers);
     final data = _decode(response);
-    if (response.statusCode != 200)
+    if (response.statusCode != 200) {
       throw ApiException(data['detail']?.toString() ??
           'No fue posible cargar lugares cercanos.');
+    }
     return (data['places'] as List).cast<Map<String, dynamic>>();
   }
 
@@ -203,9 +207,10 @@ class ApiService {
     final response =
         await http.get(Uri.parse('$baseUrl/driver/me/'), headers: _headers);
     final data = _decode(response);
-    if (response.statusCode != 200)
+    if (response.statusCode != 200) {
       throw ApiException(
           data['detail']?.toString() ?? 'Error al cargar perfil de conductor.');
+    }
     return data as Map<String, dynamic>;
   }
 
@@ -215,16 +220,18 @@ class ApiService {
       headers: {..._headers, 'Content-Type': 'application/json'},
       body: jsonEncode({'status': status}),
     );
-    if (response.statusCode != 200)
+    if (response.statusCode != 200) {
       throw ApiException('Error al actualizar estado.');
+    }
   }
 
   Future<List<Map<String, dynamic>>> getDriverAvailableRides() async {
     final response = await http
         .get(Uri.parse('$baseUrl/driver/rides/available/'), headers: _headers);
     final data = _decode(response);
-    if (response.statusCode != 200)
+    if (response.statusCode != 200) {
       throw ApiException('Error al buscar viajes disponibles.');
+    }
     return (data as List).cast<Map<String, dynamic>>();
   }
 
@@ -232,10 +239,11 @@ class ApiService {
     final response = await http.get(Uri.parse('$baseUrl/driver/rides/mine/'),
         headers: _headers);
     final data = _decode(response);
-    if (response.statusCode != 200)
+    if (response.statusCode != 200) {
       throw ApiException(data is Map
           ? data['detail']?.toString() ?? 'No fue posible cargar tus viajes.'
           : 'No fue posible cargar tus viajes.');
+    }
     return (data as List).cast<Map<String, dynamic>>();
   }
 
@@ -246,8 +254,9 @@ class ApiService {
       body: jsonEncode({'amount': amount}),
     );
     final data = _decode(response);
-    if (response.statusCode != 201)
+    if (response.statusCode != 201) {
       throw ApiException(data['detail']?.toString() ?? 'Error al ofertar.');
+    }
     return data as Map<String, dynamic>;
   }
 
@@ -270,9 +279,10 @@ class ApiService {
       headers: _headers,
     );
     final data = _decode(response);
-    if (response.statusCode != 200)
+    if (response.statusCode != 200) {
       throw ApiException(
           data['detail']?.toString() ?? 'La oferta ya no está disponible.');
+    }
     return data as Map<String, dynamic>;
   }
 
@@ -321,8 +331,9 @@ class ApiService {
       headers: {..._headers, 'Content-Type': 'application/json'},
       body: jsonEncode({'status': status}),
     );
-    if (response.statusCode != 200)
+    if (response.statusCode != 200) {
       throw ApiException('Error al actualizar estado del viaje.');
+    }
   }
 
   Future<void> verifyRidePickupCode(int rideId, String code) async {

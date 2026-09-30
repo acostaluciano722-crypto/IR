@@ -1,3 +1,17 @@
 {
-    "cmake.sourceDirectory": "C:/Users/pc/IR/frontend/windows"
+    "cmake.sourceDirectory": "C:/Users/pc/IR/frontend/windows",
+    "chat.tools.terminal.autoApprove": {
+        "/^cd frontend ; flutter run -d chrome$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^Set-Location C:\\\\Users\\\\sebas\\\\IR\\\\backend; py manage\\.py runserver 127\\.0\\.0\\.1:8000$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^\\.agents\\\\skills\\\\impeccable\\\\scripts\\\\impeccable\\.cmd context --target frontend/lib/screens/driver_home_screen\\.dart$/": {
+            "approve": true,
+            "matchCommandLine": true
+        }
+    }
 }

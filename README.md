@@ -14,7 +14,7 @@ py manage.py createsuperuser
 py manage.py runserver
 ```
 
-La API queda en `http://127.0.0.1:8000/api/`. El login usa `username` y `password`; el frontend Flutter apunta por defecto a `http://10.0.2.2:8000/api` para Android Emulator.
+La API queda en `http://127.0.0.1:8000/api/`. El login usa `username` y `password`; el frontend Flutter apunta por defecto a `http://10.0.2.:8000/api` para Android Emulator.
 
 ## Frontend
 
