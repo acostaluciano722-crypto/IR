@@ -23,6 +23,9 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
   int _walletBalance = 0;
   int _reservedBalance = 0;
   int _points = 0;
+  double _rating = 5;
+  int _ratingCount = 0;
+  int _totalRides = 0;
   String _tier = 'Inicial';
   String _vehicleType = 'carro';
   LatLng _driverLocation = const LatLng(10.391, -75.4794);
@@ -30,6 +33,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
   bool _locationPermissionChecked = false;
   bool _isLoading = true;
   bool _menuExpanded = false;
+  bool _showDriverMap = false;
   List<Map<String, dynamic>> _availableRides = [];
   List<Map<String, dynamic>> _myRides = [];
   final Set<int> _dismissedRatedRideIds = <int>{};
@@ -83,6 +87,9 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
         _walletBalance = profile['wallet_balance'];
         _reservedBalance = profile['reserved_balance'];
         _points = profile['points'] ?? 0;
+        _rating = (profile['rating'] as num?)?.toDouble() ?? 5;
+        _ratingCount = profile['rating_count'] ?? 0;
+        _totalRides = profile['total_rides'] ?? 0;
         _tier = profile['tier'] ?? 'Inicial';
         _vehicleType =
             profile['vehicle_type']?.toString().toLowerCase() ?? 'carro';
@@ -132,7 +139,9 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
         permission = await Geolocator.requestPermission();
       }
       if (permission == LocationPermission.denied ||
-          permission == LocationPermission.deniedForever) return null;
+          permission == LocationPermission.deniedForever) {
+        return null;
+      }
       _locationPermissionChecked = true;
     }
     return Geolocator.getCurrentPosition();
@@ -173,9 +182,10 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
       await _loadMyRides();
       await _loadProfile();
     } on ApiException catch (error) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text(error.message)));
+      }
     }
   }
 
@@ -252,11 +262,17 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
         ],
       ),
     );
+    if (!mounted) {
+      return;
+    }
+
     controller.dispose();
     if (code == null || code.trim().isEmpty) return;
     try {
-      await widget.api.verifyRidePickupCode(rideId, code);
-      await _loadMyRides();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Oferta enviada con Ã©xito')));
+        }
       await _loadProfile();
     } on ApiException catch (error) {
       if (mounted) {
@@ -271,10 +287,11 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
     _refreshing = true;
     try {
       final rides = await widget.api.getDriverAvailableRides();
-      if (mounted)
+      if (mounted) {
         setState(() {
           _availableRides = rides;
         });
+      }
     } catch (e) {
       // error handling
     } finally {
@@ -343,13 +360,17 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
     if (result != null) {
       try {
         await widget.api.driverRideOffer(rideId, result);
-        ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Oferta enviada con éxito')));
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Oferta enviada con éxito')));
+        }
         _loadAvailableRides();
         _loadMyRides();
       } catch (e) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(e.toString())));
+        if (mounted) {
+          ScaffoldMessenger.of(context)
+              .showSnackBar(SnackBar(content: Text(e.toString())));
+        }
       }
     }
   }
@@ -357,6 +378,10 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
   Future<void> _acceptRide(int rideId) async {
     try {
       await widget.api.driverAcceptRide(rideId);
+      if (!mounted) {
+        return;
+      }
+      setState(() => _showDriverMap = true);
       ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Aceptaste el precio propuesto.')));
       await _loadAvailableRides();
@@ -381,18 +406,6 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
     }
   }
 
-  Future<void> _rechargeWallet() async {
-    try {
-      await widget.api.driverWalletRecharge(50000);
-      ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Recargaste \$50,000 COP')));
-      _loadProfile();
-    } catch (e) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(e.toString())));
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
@@ -402,6 +415,8 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
               const Scaffold(body: Center(child: CircularProgressIndicator())));
     }
 
+        final hasActiveRide = _showDriverMap && _activeRideData != null;
+
     return Theme(
       data: irDarkTheme(),
       child: Scaffold(
@@ -409,43 +424,40 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
         body: SafeArea(
           bottom: false,
           child: Stack(children: [
-            Positioned.fill(
-                child: GoogleMap(
-              initialCameraPosition: const CameraPosition(
-                  target: LatLng(10.391, -75.4794), zoom: 13.8),
-              myLocationEnabled: true,
-              myLocationButtonEnabled: false,
-              zoomControlsEnabled: false,
-              onMapCreated: (controller) => _mapController = controller,
-              webGestureHandling: WebGestureHandling.greedy,
-              scrollGesturesEnabled: true,
-              zoomGesturesEnabled: true,
-              rotateGesturesEnabled: true,
-              tiltGesturesEnabled: true,
-              markers: _driverMarkers,
-              style: _driverMapStyle,
-            )),
-            Positioned(
-                top: 12,
-                right: 16,
-                child: _DriverRoundAction(
-                    icon: Icons.my_location, onPressed: _recenterDriverMap)),
-            Positioned(
-                top: 82,
-                left: 18,
-                right: 18,
-                child:
-                    _DriverStatusPill(status: _status, onTap: _toggleStatus)),
+            if (hasActiveRide)
+              Positioned.fill(
+                  child: GoogleMap(
+                initialCameraPosition: const CameraPosition(
+                    target: LatLng(10.391, -75.4794), zoom: 13.8),
+                myLocationEnabled: true,
+                myLocationButtonEnabled: false,
+                zoomControlsEnabled: false,
+                onMapCreated: (controller) => _mapController = controller,
+                webGestureHandling: WebGestureHandling.greedy,
+                scrollGesturesEnabled: true,
+                zoomGesturesEnabled: true,
+                rotateGesturesEnabled: true,
+                tiltGesturesEnabled: true,
+                markers: _driverMarkers,
+                style: _driverMapStyle,
+              )),
+            if (hasActiveRide)
+              Positioned(
+                  top: 12,
+                  right: 16,
+                  child: _DriverRoundAction(
+                      icon: Icons.my_location,
+                      onPressed: _recenterDriverMap)),
             Positioned.fill(
               child: Align(
                 alignment: Alignment.bottomCenter,
                 child: DraggableScrollableSheet(
                     key: ValueKey('driver-ride-sheet-$_sheetVersion'),
                     expand: false,
-                    initialChildSize: .52,
-                    minChildSize: .40,
-                    maxChildSize: .90,
-                    snapSizes: const [.52, .90],
+                    initialChildSize: hasActiveRide ? .52 : .92,
+                    minChildSize: hasActiveRide ? .40 : .80,
+                    maxChildSize: .96,
+                    snapSizes: hasActiveRide ? const [.52, .90] : const [.92],
                     snap: true,
                     builder: (context, controller) => Container(
                           decoration: const BoxDecoration(
@@ -465,14 +477,11 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                                           borderRadius:
                                               BorderRadius.circular(4)))),
                               const SizedBox(height: 14),
-                              _DriverWalletPanel(
-                                  wallet: _walletBalance,
-                                  reserved: _reservedBalance,
-                                  available: _status == 'available',
-                                  onRecharge: _rechargeWallet),
-                              const SizedBox(height: 12),
                               _DriverPointsPanel(points: _points, tier: _tier),
                               const SizedBox(height: 16),
+                                    _DriverStatusPill(
+                                      status: _status, onTap: _toggleStatus),
+                                    const SizedBox(height: 16),
                               _driverContent(),
                             ],
                           ),
@@ -493,6 +502,10 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                 left: _menuExpanded ? 0 : -324,
                 width: 308,
                 child: _DriverSideBar(
+                    user: widget.user,
+                    rating: _rating,
+                    ratingCount: _ratingCount,
+                    totalRides: _totalRides,
                     onClose: () => setState(() => _menuExpanded = false),
                     onSectionSelected: (value) {
                       setState(() => _menuExpanded = false);
@@ -500,7 +513,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                     })),
             Positioned(
                 top: 12,
-                left: 16,
+                right: 16,
                 child: _DriverRoundAction(
                     icon: _menuExpanded ? Icons.close : Icons.menu,
                     onPressed: () =>
@@ -588,25 +601,41 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
         : value == 'bonus'
             ? BonusScreen(role: 'driver', points: _points, tier: _tier)
             : RoleSectionScreen(
-                title: value == 'history'
-                    ? 'Historial de viajes'
-                    : value == 'support'
-                        ? 'Soporte IR'
-                        : 'Perfil',
+                title: _driverSectionTitle(value),
                 role: 'driver',
                 items: _driverSectionItems(value));
     Navigator.of(context).push(MaterialPageRoute(builder: (_) => screen));
   }
 
+  String _driverSectionTitle(String section) {
+    switch (section) {
+      case 'history':
+        return 'Historial de viajes';
+      case 'support':
+        return 'Soporte IR';
+      case 'city':
+        return 'Ciudad';
+      case 'city_to_city':
+        return 'Ciudad a Ciudad';
+      case 'wallet':
+        return 'Cartera';
+      case 'settings':
+        return 'Configuración';
+      default:
+        return 'Cuenta';
+    }
+  }
+
   List<SectionItem> _driverSectionItems(String section) {
     if (section == 'history') {
-      if (_myRides.isEmpty)
+      if (_myRides.isEmpty) {
         return const [
           SectionItem(
               icon: Icons.inbox_outlined,
               title: 'Sin viajes asignados',
               description: 'Los viajes seleccionados aparecerán aquí.')
         ];
+      }
       return _myRides
           .map((ride) => SectionItem(
               icon: Icons.route,
@@ -615,7 +644,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                   'Estado: ${ride['status']} · Tarifa: COP ${ride['final_fare'] == 0 ? ride['offer_amount'] : ride['final_fare']}'))
           .toList();
     }
-    if (section == 'support')
+    if (section == 'support') {
       return const [
         SectionItem(
             icon: Icons.help_outline,
@@ -627,6 +656,48 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
             description:
                 'La seguridad tiene prioridad sobre la continuidad del viaje.')
       ];
+    }
+    if (section == 'city') {
+      return const [
+        SectionItem(
+            icon: Icons.directions_car_outlined,
+            title: 'Servicio en ciudad',
+            description: 'Recibe solicitudes de viajes dentro de Cartagena.'),
+      ];
+    }
+    if (section == 'city_to_city') {
+      return const [
+        SectionItem(
+            icon: Icons.public_outlined,
+            title: 'Viajes entre ciudades',
+            description: 'Consulta y gestiona servicios de larga distancia.'),
+      ];
+    }
+    if (section == 'wallet') {
+      return [
+        SectionItem(
+            icon: Icons.account_balance_wallet_outlined,
+            title: 'Saldo disponible',
+            description:
+                'Disponible: COP ${_walletBalance - _reservedBalance}'),
+        const SectionItem(
+            icon: Icons.add_card_outlined,
+            title: 'Recargar cartera',
+            description: 'Agrega saldo para continuar operando.'),
+      ];
+    }
+    if (section == 'settings') {
+      return const [
+        SectionItem(
+            icon: Icons.settings_outlined,
+            title: 'Preferencias de la cuenta',
+            description: 'Administra tus preferencias como conductor.'),
+        SectionItem(
+            icon: Icons.notifications_none_outlined,
+            title: 'Notificaciones',
+            description: 'Configura los avisos de nuevas solicitudes.'),
+      ];
+    }
     return [
       SectionItem(
           icon: Icons.person_outline,
@@ -646,8 +717,9 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
     }
     final active = _activeRideCard();
     if (active != null) return active;
-    if (_availableRides.isEmpty)
+    if (_availableRides.isEmpty) {
       return const Center(child: Text('Buscando viajes cercanos...'));
+    }
     return Column(
       children: _availableRides.map((ride) {
         final passengerOrigin = _passengerOriginLabel(ride);
@@ -988,7 +1060,16 @@ class _DriverRoundAction extends StatelessWidget {
 
 class _DriverSideBar extends StatelessWidget {
   const _DriverSideBar(
-      {required this.onClose, required this.onSectionSelected});
+      {required this.user,
+      required this.rating,
+      required this.ratingCount,
+      required this.totalRides,
+      required this.onClose,
+      required this.onSectionSelected});
+  final Map<String, dynamic> user;
+  final double rating;
+  final int ratingCount;
+  final int totalRides;
   final VoidCallback onClose;
   final ValueChanged<String> onSectionSelected;
 
@@ -997,7 +1078,11 @@ class _DriverSideBar extends StatelessWidget {
     ('bonus', 'Bonificaciones', Icons.card_giftcard_outlined),
     ('history', 'Historial', Icons.history),
     ('support', 'Soporte', Icons.support_agent_outlined),
-    ('profile', 'Perfil', Icons.person_outline),
+    ('profile', 'Cuenta', Icons.person_outline),
+    ('city', 'Ciudad', Icons.directions_car_outlined),
+    ('city_to_city', 'Ciudad a Ciudad', Icons.public_outlined),
+    ('wallet', 'Cartera', Icons.account_balance_wallet_outlined),
+    ('settings', 'Configuración', Icons.settings_outlined),
   ];
 
   @override
@@ -1020,6 +1105,37 @@ class _DriverSideBar extends StatelessWidget {
                     onPressed: onClose,
                     icon: const Icon(Icons.close, color: IrPalette.muted)),
               ]),
+                const SizedBox(height: 14),
+                const CircleAvatar(
+                  radius: 28,
+                  backgroundColor: IrPalette.accent,
+                  child: Icon(Icons.person, color: IrPalette.ink, size: 30)),
+                const SizedBox(height: 10),
+                Text(user['name']?.toString() ?? 'Conductor IR',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: IrPalette.text,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w800)),
+                const SizedBox(height: 4),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                    ...List.generate(
+                      5,
+                      (_) => const Icon(Icons.star,
+                        color: IrPalette.accent, size: 20)),
+                    const SizedBox(width: 8),
+                    Text('${rating.toStringAsFixed(2)} ($totalRides)',
+                      style: const TextStyle(
+                        color: IrPalette.text,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700)),
+                    ]),
+                  const SizedBox(height: 3),
+                  Text('$ratingCount calificaciones',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: IrPalette.muted, fontSize: 12)),
               const Divider(color: IrPalette.border),
               const SizedBox(height: 8),
               ..._items.map((item) => Padding(
@@ -1099,48 +1215,6 @@ class _DriverStatusPill extends StatelessWidget {
       );
 }
 
-class _DriverWalletPanel extends StatelessWidget {
-  const _DriverWalletPanel(
-      {required this.wallet,
-      required this.reserved,
-      required this.available,
-      required this.onRecharge});
-  final int wallet;
-  final int reserved;
-  final bool available;
-  final VoidCallback onRecharge;
-
-  @override
-  Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-            color: IrPalette.raised,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: IrPalette.border)),
-        child: Row(children: [
-          const Icon(Icons.account_balance_wallet_outlined,
-              color: IrPalette.accent, size: 27),
-          const SizedBox(width: 11),
-          Expanded(
-              child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                Text('Bolsa IR · COP $wallet',
-                    style: const TextStyle(
-                        color: IrPalette.text, fontWeight: FontWeight.w800)),
-                Text(
-                    'Disponible COP ${wallet - reserved} · Reservado COP $reserved',
-                    style:
-                        const TextStyle(color: IrPalette.muted, fontSize: 12)),
-              ])),
-          TextButton(
-              onPressed: onRecharge,
-              style: TextButton.styleFrom(foregroundColor: IrPalette.accent),
-              child: const Text('Recargar')),
-        ]),
-      );
-}
-
 class _DriverPointsPanel extends StatelessWidget {
   const _DriverPointsPanel({required this.points, required this.tier});
   final int points;
@@ -1155,7 +1229,7 @@ class _DriverPointsPanel extends StatelessWidget {
           const Icon(Icons.stars, color: IrPalette.accent, size: 28),
           const SizedBox(width: 10),
           Expanded(
-              child: Text('$points PI · Nivel $tier',
+              child: Text('$points PI · Nivel Nacional',
                   style: const TextStyle(
                       color: IrPalette.text, fontWeight: FontWeight.w800))),
           const Icon(Icons.card_giftcard, color: IrPalette.accent),

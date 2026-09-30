@@ -31,12 +31,16 @@ class DriverMeView(APIView):
             return Response({'detail': 'Solo los conductores pueden acceder a este recurso.'}, status=status.HTTP_403_FORBIDDEN)
         profile, _ = DriverProfile.objects.get_or_create(user=request.user)
         return Response({
+            'name': request.user.get_full_name() or request.user.username,
             'status': profile.status,
             'wallet_balance': profile.wallet_balance,
             'reserved_balance': profile.reserved_balance,
             'available_balance': profile.wallet_balance - profile.reserved_balance,
             'points': profile.points,
             'tier': profile.tier,
+            'rating': profile.rating,
+            'rating_count': profile.rating_count,
+            'total_rides': profile.total_rides,
             'vehicle_type': AccountProfile.objects.filter(user=request.user).values_list('vehicle_type', flat=True).first() or 'carro',
         })
     
