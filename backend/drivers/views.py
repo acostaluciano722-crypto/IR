@@ -229,11 +229,11 @@ class RideVerifyPickupCodeView(APIView):
                 id=ride_id,
                 driver=request.user,
             )
-            if ride.status != Ride.Status.ACCEPTED:
+            if ride.status != Ride.Status.ARRIVED:
                 return Response({'detail': 'El viaje no está listo para iniciar.'}, status=status.HTTP_409_CONFLICT)
             if not ride.pickup_code or code != ride.pickup_code:
                 return Response({'detail': 'El código del pasajero no coincide.'}, status=status.HTTP_400_BAD_REQUEST)
-            ride.status = Ride.Status.EN_ROUTE
+            ride.status = Ride.Status.IN_PROGRESS
             ride.save(update_fields=['status'])
         return Response({'status': ride.status})
 

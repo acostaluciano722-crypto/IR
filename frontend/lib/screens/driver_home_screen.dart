@@ -40,8 +40,14 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
   final Set<int> _closedReviewRideIds = <int>{};
   Timer? _refreshTimer;
   Timer? _countdownTimer;
+  Timer? _mapRecenterTimer;
   bool _refreshing = false;
+  bool _isProgrammaticCameraMove = false;
   GoogleMapController? _mapController;
+  BitmapDescriptor? _carMarkerAsset;
+  BitmapDescriptor? _motoMarkerAsset;
+  Map<String, dynamic>? _activeDriverRoute;
+  String? _activeDriverRouteKey;
   int _sheetVersion = 0;
 
   @override
@@ -49,6 +55,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
     super.initState();
     _loadProfile();
     _startDriverLocationTracking();
+    _loadVehicleMarkerAssets();
     _refreshTimer = Timer.periodic(const Duration(seconds: 5), (_) {
       if (!mounted) return;
       if (_status == 'available') _loadAvailableRides();
@@ -73,6 +80,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
   void dispose() {
     _refreshTimer?.cancel();
     _countdownTimer?.cancel();
+    _mapRecenterTimer?.cancel();
     _locationSubscription?.cancel();
     _mapController?.dispose();
     super.dispose();
@@ -104,6 +112,22 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
     }
   }
 
+  Future<void> _loadVehicleMarkerAssets() async {
+    try {
+      const configuration = ImageConfiguration(size: Size(64, 64));
+      final car = await BitmapDescriptor.asset(
+          configuration, 'assets/icons/car_marker.svg');
+      final moto = await BitmapDescriptor.asset(
+          configuration, 'assets/icons/moto_marker.svg');
+      if (mounted) {
+        setState(() {
+          _carMarkerAsset = car;
+          _motoMarkerAsset = moto;
+        });
+      }
+    } catch (_) {}
+  }
+
   Future<void> _loadMyRides() async {
     try {
       final rides = await widget.api.getDriverRides();
@@ -114,8 +138,48 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                 !_dismissedRatedRideIds.contains(_rideId(ride)))
             .toList());
       }
+          await _refreshActiveDriverRoute();
       final active = _activeRideData;
       if (active != null) await _publishDriverLocation(active['id'] as int);
+    } catch (_) {}
+  }
+
+  Future<void> _refreshActiveDriverRoute() async {
+    final ride = _activeRideData;
+    if (ride == null) {
+      _activeDriverRouteKey = null;
+      if (mounted && _activeDriverRoute != null) {
+        setState(() => _activeDriverRoute = null);
+      }
+      return;
+    }
+    final status = ride['status']?.toString();
+    final driver = _coordinate(ride['driver_lat']) != null &&
+            _coordinate(ride['driver_lng']) != null
+        ? LatLng(_coordinate(ride['driver_lat'])!,
+            _coordinate(ride['driver_lng'])!)
+        : _driverLocation;
+    final pickup = LatLng(
+        _coordinate(ride['origin_lat']) ??
+            _coordinate(ride['passenger_lat']) ??
+            driver.latitude,
+        _coordinate(ride['origin_lng']) ??
+            _coordinate(ride['passenger_lng']) ??
+            driver.longitude);
+    final destination = LatLng(_coordinate(ride['destination_lat']) ??
+        pickup.latitude, _coordinate(ride['destination_lng']) ?? pickup.longitude);
+    final target = status == 'in_progress' ? destination : pickup;
+    final key =
+        '${ride['id']}:$status:${driver.latitude.toStringAsFixed(4)}:${driver.longitude.toStringAsFixed(4)}:${target.latitude.toStringAsFixed(4)}:${target.longitude.toStringAsFixed(4)}';
+    if (key == _activeDriverRouteKey) return;
+    _activeDriverRouteKey = key;
+    try {
+      final route = await widget.api.estimateRoute(
+          originLat: driver.latitude,
+          originLng: driver.longitude,
+          destinationLat: target.latitude,
+          destinationLng: target.longitude);
+      if (mounted) setState(() => _activeDriverRoute = route);
     } catch (_) {}
   }
 
@@ -153,6 +217,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
     setState(() {
       _driverLocation = LatLng(position.latitude, position.longitude);
     });
+    await _locationSubscription?.cancel();
     _locationSubscription = Geolocator.getPositionStream(
       locationSettings: const LocationSettings(
           accuracy: LocationAccuracy.high, distanceFilter: 5),
@@ -236,8 +301,34 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
       int.tryParse(ride['id']?.toString() ?? '');
 
   Future<void> _recenterDriverMap() async {
-    await _mapController
-        ?.animateCamera(CameraUpdate.newLatLngZoom(_driverLocation, 16));
+    _mapRecenterTimer?.cancel();
+    await _animateDriverCamera(
+        CameraUpdate.newLatLngZoom(_driverLocation, 16));
+  }
+
+  Future<void> _onDriverMapCreated(GoogleMapController controller) async {
+    _mapController = controller;
+    await _startDriverLocationTracking();
+    await _animateDriverCamera(
+        CameraUpdate.newLatLngZoom(_driverLocation, 16));
+  }
+
+  Future<void> _animateDriverCamera(CameraUpdate update) async {
+    if (_mapController == null) return;
+    _isProgrammaticCameraMove = true;
+    try {
+      await _mapController!.animateCamera(update);
+    } finally {
+      _isProgrammaticCameraMove = false;
+    }
+  }
+
+  void _scheduleDriverMapRecenter() {
+    if (_isProgrammaticCameraMove) return;
+    _mapRecenterTimer?.cancel();
+    _mapRecenterTimer = Timer(const Duration(seconds: 5), () {
+      if (mounted) _recenterDriverMap();
+    });
   }
 
   Future<void> _verifyPickupCode(int rideId) async {
@@ -269,9 +360,10 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
     controller.dispose();
     if (code == null || code.trim().isEmpty) return;
     try {
+      await widget.api.verifyRidePickupCode(rideId, code.trim());
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Oferta enviada con Ã©xito')));
+        const SnackBar(content: Text('Viaje iniciado correctamente.')));
         }
       await _loadProfile();
     } on ApiException catch (error) {
@@ -432,13 +524,16 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                 myLocationEnabled: true,
                 myLocationButtonEnabled: false,
                 zoomControlsEnabled: false,
-                onMapCreated: (controller) => _mapController = controller,
+                onMapCreated: _onDriverMapCreated,
+                onCameraMoveStarted: _scheduleDriverMapRecenter,
+                onCameraIdle: _scheduleDriverMapRecenter,
                 webGestureHandling: WebGestureHandling.greedy,
                 scrollGesturesEnabled: true,
                 zoomGesturesEnabled: true,
                 rotateGesturesEnabled: true,
                 tiltGesturesEnabled: true,
                 markers: _driverMarkers,
+                polylines: _driverRouteLines,
                 style: _driverMapStyle,
               )),
             if (hasActiveRide)
@@ -455,9 +550,12 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                     key: ValueKey('driver-ride-sheet-$_sheetVersion'),
                     expand: false,
                     initialChildSize: hasActiveRide ? .52 : .92,
-                    minChildSize: hasActiveRide ? .40 : .80,
-                    maxChildSize: .96,
-                    snapSizes: hasActiveRide ? const [.52, .90] : const [.92],
+                    minChildSize: hasActiveRide ? .24 : .80,
+                    maxChildSize: 1.0,
+                    snapSizes:
+                      hasActiveRide
+                        ? const [.24, .52, .90, 1.0]
+                        : const [.92],
                     snap: true,
                     builder: (context, controller) => Container(
                           decoration: const BoxDecoration(
@@ -530,8 +628,11 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
     markers.add(Marker(
       markerId: const MarkerId('driver-current-location'),
       position: _driverLocation,
-      icon: BitmapDescriptor.defaultMarkerWithHue(
-          isMoto ? BitmapDescriptor.hueOrange : BitmapDescriptor.hueAzure),
+        icon: isMoto
+          ? (_motoMarkerAsset ??
+            BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange))
+          : (_carMarkerAsset ??
+            BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure)),
       infoWindow: InfoWindow(
           title: isMoto ? 'Moto del conductor' : 'Carro del conductor',
           snippet: 'Ubicación actual en tiempo real'),
@@ -576,8 +677,40 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
           infoWindow: const InfoWindow(title: 'Ubicación del pasajero'),
         ));
       }
+      final destinationLat = _coordinate(active['destination_lat']);
+      final destinationLng = _coordinate(active['destination_lng']);
+      if (destinationLat != null && destinationLng != null) {
+        markers.add(Marker(
+          markerId: const MarkerId('active-destination'),
+          position: LatLng(destinationLat, destinationLng),
+          icon: BitmapDescriptor.defaultMarkerWithHue(
+              BitmapDescriptor.hueYellow),
+          zIndexInt: 2,
+          infoWindow: InfoWindow(
+              title: active['destination']?.toString() ?? 'Destino',
+              snippet: 'Destino del pasajero'),
+        ));
+      }
     }
     return markers;
+  }
+
+  Set<Polyline> get _driverRouteLines {
+    final rawPoints = (_activeDriverRoute?['route_points'] as List?) ?? [];
+    final points = rawPoints
+        .map((point) => LatLng(
+            (point['lat'] as num).toDouble(), (point['lng'] as num).toDouble()))
+        .toList();
+    if (points.length < 2) return {};
+    return {
+      Polyline(
+        polylineId: const PolylineId('driver-active-route'),
+        points: points,
+        color: IrPalette.accent,
+        width: 7,
+        jointType: JointType.round,
+      ),
+    };
   }
 
   Map<String, dynamic>? get _activeRideData {
@@ -783,7 +916,6 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
     }
     final next = <String, String>{
       'en_route': 'arrived',
-      'arrived': 'in_progress',
       'in_progress': 'completed',
       'completed': 'validated',
     }[status];
@@ -826,7 +958,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                               distanceKm: ride['live_distance_km']),
                         const SizedBox(height: 14),
                         Chip(label: Text('Estado: $status')),
-                        if (status == 'accepted')
+                        if (status == 'arrived')
                           SizedBox(
                               width: double.infinity,
                               child: ElevatedButton.icon(
@@ -835,6 +967,14 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                                   icon: const Icon(Icons.verified_outlined),
                                   label: const Text(
                                       'Introducir código e iniciar'))),
+                                if (status == 'accepted' || status == 'en_route')
+                                  SizedBox(
+                                    width: double.infinity,
+                                    child: OutlinedButton.icon(
+                                      onPressed: null,
+                                      icon: const Icon(Icons.lock_outline),
+                                      label: const Text(
+                                        'Introducir código e iniciar · marca llegada primero'))),
                         if (next != null)
                           SizedBox(
                               width: double.infinity,

@@ -77,9 +77,21 @@ class RideOfferFlowTests(APITestCase):
 			{'code': 'XXXXXX'},
 			format='json',
 		)
-		self.assertEqual(invalid.status_code, 400)
+		self.assertEqual(invalid.status_code, 409)
 		self.ride.refresh_from_db()
 		self.assertEqual(self.ride.status, Ride.Status.ACCEPTED)
+
+		self.client.post(
+			reverse('driver-ride-status', args=[self.ride.id]),
+			{'status': Ride.Status.EN_ROUTE},
+			format='json',
+		)
+		arrived = self.client.post(
+			reverse('driver-ride-status', args=[self.ride.id]),
+			{'status': Ride.Status.ARRIVED},
+			format='json',
+		)
+		self.assertEqual(arrived.status_code, 200)
 
 		valid = self.client.post(
 			reverse('driver-ride-verify-code', args=[self.ride.id]),
@@ -88,7 +100,7 @@ class RideOfferFlowTests(APITestCase):
 		)
 		self.assertEqual(valid.status_code, 200)
 		self.ride.refresh_from_db()
-		self.assertEqual(self.ride.status, Ride.Status.EN_ROUTE)
+		self.assertEqual(self.ride.status, Ride.Status.IN_PROGRESS)
 
 	def test_each_party_can_update_location_and_distance_is_returned(self):
 		self.authenticate(self.passenger)
