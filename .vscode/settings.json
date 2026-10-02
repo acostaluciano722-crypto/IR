@@ -72,6 +72,34 @@
         "/^Push-Location c:\\\\Users\\\\sebas\\\\IR; git add \\.vscode/settings\\.json; git diff --cached --check; git commit -m \"chore: actualiza aprobaciones de comandos de VS Code\"; git status --short$/": {
             "approve": true,
             "matchCommandLine": true
+        },
+        "/^Set-Location backend; python manage\\.py showmigrations$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^Set-Location backend; python manage\\.py check; python manage\\.py showmigrations --verbosity 1$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^Get-Location; Test-Path \\.\\\\manage\\.py; python manage\\.py showmigrations --list$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^cd \\.\\.; python backend/manage\\.py check; python backend/manage\\.py showmigrations --list$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^python C:\\\\Users\\\\sebas\\\\IR\\\\backend\\\\manage\\.py check; python C:\\\\Users\\\\sebas\\\\IR\\\\backend\\\\manage\\.py showmigrations --list$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^& 'C:\\\\Program Files\\\\Git\\\\cmd\\\\git\\.exe' -C 'C:\\\\Users\\\\sebas\\\\IR' status --short; & 'C:\\\\Program Files\\\\Git\\\\cmd\\\\git\\.exe' -C 'C:\\\\Users\\\\sebas\\\\IR' diff --stat$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^& 'C:\\\\Program Files\\\\Git\\\\cmd\\\\git\\.exe' -C 'C:\\\\Users\\\\sebas\\\\IR' add \\.vscode/settings\\.json backend/config/settings\\.py backend/modelos_generados\\.py; & 'C:\\\\Program Files\\\\Git\\\\cmd\\\\git\\.exe' -C 'C:\\\\Users\\\\sebas\\\\IR' diff --cached --check; & 'C:\\\\Program Files\\\\Git\\\\cmd\\\\git\\.exe' -C 'C:\\\\Users\\\\sebas\\\\IR' commit -m 'configura PostgreSQL y agrega modelos generados'$/": {
+            "approve": true,
+            "matchCommandLine": true
         }
     }
 }
