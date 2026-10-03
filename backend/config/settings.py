@@ -4,7 +4,7 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = 'dev-only-change-me'
 DEBUG = True
-ALLOWED_HOSTS = ['127.0.0.1', 'localhost']
+ALLOWED_HOSTS = ['127.0.0.1', 'localhost', '0.0.0.0', '10.0.2.2']
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -44,15 +44,26 @@ TEMPLATES = [{
 }]
 WSGI_APPLICATION = 'config.wsgi.application'
 
-DATABASES = {'default': {
+DB_ENGINE = os.environ.get('DB_ENGINE', 'sqlite')
 
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'ir_promaster_db',
-        'USER': 'casaco',
-        'PASSWORD': 'uao561thor',
-        'HOST': '100.122.205.24', 
-        'PORT': '5433',
-}}
+if DB_ENGINE == 'postgresql':
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': os.environ.get('DB_NAME', 'ir_promaster_db'),
+            'USER': os.environ.get('DB_USER', 'casaco'),
+            'PASSWORD': os.environ.get('DB_PASSWORD', 'uao561thor'),
+            'HOST': os.environ.get('DB_HOST', '100.122.205.24'),
+            'PORT': os.environ.get('DB_PORT', '5433'),
+        }
+    }
+else:
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db.sqlite3',
+        }
+    }
 
 AUTH_PASSWORD_VALIDATORS = []
 LANGUAGE_CODE = 'es-co'
