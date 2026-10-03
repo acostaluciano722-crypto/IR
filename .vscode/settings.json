@@ -1,3 +1,105 @@
 {
-    "cmake.sourceDirectory": "C:/Users/pc/IR/frontend/windows"
+    "cmake.sourceDirectory": "C:/Users/pc/IR/frontend/windows",
+    "chat.tools.terminal.autoApprove": {
+        "/^cd frontend ; flutter run -d chrome$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^Set-Location C:\\\\Users\\\\sebas\\\\IR\\\\backend; py manage\\.py runserver 127\\.0\\.0\\.1:8000$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^\\.agents\\\\skills\\\\impeccable\\\\scripts\\\\impeccable\\.cmd context --target frontend/lib/screens/driver_home_screen\\.dart$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^& \\.agents\\\\skills\\\\impeccable\\\\scripts\\\\impeccable\\.cmd context --target frontend/lib/screens/passenger_home_screen\\.dart$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^Push-Location frontend; flutter analyze lib/screens/passenger_home_screen\\.dart$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^flutter analyze lib/screens/passenger_home_screen\\.dart$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^Push-Location frontend; flutter run -d chrome$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^Push-Location frontend; flutter run -d web-server --web-port 5353 --web-hostname 127\\.0\\.0\\.1$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^Push-Location c:\\\\Users\\\\sebas\\\\IR\\\\frontend; flutter analyze lib/screens/passenger_home_screen\\.dart lib/screens/driver_home_screen\\.dart$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^Push-Location c:\\\\Users\\\\sebas\\\\IR\\\\frontend; flutter analyze lib/screens/passenger_home_screen\\.dart$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^Push-Location c:\\\\Users\\\\sebas\\\\IR\\\\frontend; dart analyze lib/screens/passenger_home_screen\\.dart$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^Push-Location c:\\\\Users\\\\sebas\\\\IR\\\\frontend; dart analyze lib/screens/driver_home_screen\\.dart$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^Push-Location c:\\\\Users\\\\sebas\\\\IR\\\\frontend; dart analyze lib/screens/passenger_home_screen\\.dart lib/screens/driver_home_screen\\.dart$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^Push-Location c:\\\\Users\\\\sebas\\\\IR\\\\backend; python manage\\.py test drivers\\.tests\\.RideOfferFlowTests\\.test_driver_must_verify_passenger_code_before_starting$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^Push-Location c:\\\\Users\\\\sebas\\\\IR; git status --short$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^Push-Location c:\\\\Users\\\\sebas\\\\IR; git add backend/drivers/tests\\.py backend/drivers/views\\.py frontend/lib/screens/driver_home_screen\\.dart frontend/lib/screens/passenger_home_screen\\.dart frontend/pubspec\\.yaml frontend/assets/icons/car_marker\\.svg frontend/assets/icons/moto_marker\\.svg; git diff --cached --check; git diff --cached --stat; git commit -m \"feat: mejora flujo y seguimiento de viajes\"$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^Push-Location c:\\\\Users\\\\sebas\\\\IR; git show --stat --oneline --summary HEAD$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^Push-Location c:\\\\Users\\\\sebas\\\\IR; git add \\.vscode/settings\\.json; git diff --cached --check; git commit -m \"chore: actualiza aprobaciones de comandos de VS Code\"; git status --short$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^Set-Location backend; python manage\\.py showmigrations$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^Set-Location backend; python manage\\.py check; python manage\\.py showmigrations --verbosity 1$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^Get-Location; Test-Path \\.\\\\manage\\.py; python manage\\.py showmigrations --list$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^cd \\.\\.; python backend/manage\\.py check; python backend/manage\\.py showmigrations --list$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^python C:\\\\Users\\\\sebas\\\\IR\\\\backend\\\\manage\\.py check; python C:\\\\Users\\\\sebas\\\\IR\\\\backend\\\\manage\\.py showmigrations --list$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^& 'C:\\\\Program Files\\\\Git\\\\cmd\\\\git\\.exe' -C 'C:\\\\Users\\\\sebas\\\\IR' status --short; & 'C:\\\\Program Files\\\\Git\\\\cmd\\\\git\\.exe' -C 'C:\\\\Users\\\\sebas\\\\IR' diff --stat$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^& 'C:\\\\Program Files\\\\Git\\\\cmd\\\\git\\.exe' -C 'C:\\\\Users\\\\sebas\\\\IR' add \\.vscode/settings\\.json backend/config/settings\\.py backend/modelos_generados\\.py; & 'C:\\\\Program Files\\\\Git\\\\cmd\\\\git\\.exe' -C 'C:\\\\Users\\\\sebas\\\\IR' diff --cached --check; & 'C:\\\\Program Files\\\\Git\\\\cmd\\\\git\\.exe' -C 'C:\\\\Users\\\\sebas\\\\IR' commit -m 'configura PostgreSQL y agrega modelos generados'$/": {
+            "approve": true,
+            "matchCommandLine": true
+        }
+    }
 }

@@ -31,12 +31,16 @@ class DriverMeView(APIView):
             return Response({'detail': 'Solo los conductores pueden acceder a este recurso.'}, status=status.HTTP_403_FORBIDDEN)
         profile, _ = DriverProfile.objects.get_or_create(user=request.user)
         return Response({
+            'name': request.user.get_full_name() or request.user.username,
             'status': profile.status,
             'wallet_balance': profile.wallet_balance,
             'reserved_balance': profile.reserved_balance,
             'available_balance': profile.wallet_balance - profile.reserved_balance,
             'points': profile.points,
             'tier': profile.tier,
+            'rating': profile.rating,
+            'rating_count': profile.rating_count,
+            'total_rides': profile.total_rides,
             'vehicle_type': AccountProfile.objects.filter(user=request.user).values_list('vehicle_type', flat=True).first() or 'carro',
         })
     
@@ -225,11 +229,11 @@ class RideVerifyPickupCodeView(APIView):
                 id=ride_id,
                 driver=request.user,
             )
-            if ride.status != Ride.Status.ACCEPTED:
+            if ride.status != Ride.Status.ARRIVED:
                 return Response({'detail': 'El viaje no está listo para iniciar.'}, status=status.HTTP_409_CONFLICT)
             if not ride.pickup_code or code != ride.pickup_code:
                 return Response({'detail': 'El código del pasajero no coincide.'}, status=status.HTTP_400_BAD_REQUEST)
-            ride.status = Ride.Status.EN_ROUTE
+            ride.status = Ride.Status.IN_PROGRESS
             ride.save(update_fields=['status'])
         return Response({'status': ride.status})
 
@@ -264,10 +268,12 @@ class RideUpdateStatusView(APIView):
                 debit = (final_fare + 9) // 10
                 if profile.reserved_balance < debit or profile.wallet_balance < debit:
                     return Response({'detail': 'La reserva de Bolsa IR no cubre el débito final.'}, status=status.HTTP_409_CONFLICT)
+                profile.total_rides += 1
                 profile.reserved_balance -= debit
                 profile.wallet_balance -= debit
                 profile.add_points(debit // 10, f'PI conductor por viaje validado #{ride.id}')
                 passenger_profile, _ = PassengerProfile.objects.get_or_create(user=ride.passenger)
+                passenger_profile.total_rides += 1
                 passenger_profile.add_points(final_fare // 20, f'PI pasajero por viaje validado #{ride.id}')
                 ride.final_fare = final_fare
                 ride.save(update_fields=['final_fare'])

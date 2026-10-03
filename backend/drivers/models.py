@@ -37,7 +37,7 @@ class DriverProfile(models.Model):
     def rating(self):
         if self.rating_count == 0:
             return 5.0
-        return round(self.rating_sum / self.rating_count, 1)
+        return round(self.rating_sum / self.rating_count, 2)
 
     def recalculate_tier(self):
         """Driver tier thresholds (ProMaster V2.0):

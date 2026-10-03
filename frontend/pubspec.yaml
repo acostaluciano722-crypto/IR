@@ -21,3 +21,6 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/icons/car_marker.svg
+    - assets/icons/moto_marker.svg
