@@ -268,10 +268,12 @@ class RideUpdateStatusView(APIView):
                 debit = (final_fare + 9) // 10
                 if profile.reserved_balance < debit or profile.wallet_balance < debit:
                     return Response({'detail': 'La reserva de Bolsa IR no cubre el débito final.'}, status=status.HTTP_409_CONFLICT)
+                profile.total_rides += 1
                 profile.reserved_balance -= debit
                 profile.wallet_balance -= debit
                 profile.add_points(debit // 10, f'PI conductor por viaje validado #{ride.id}')
                 passenger_profile, _ = PassengerProfile.objects.get_or_create(user=ride.passenger)
+                passenger_profile.total_rides += 1
                 passenger_profile.add_points(final_fare // 20, f'PI pasajero por viaje validado #{ride.id}')
                 ride.final_fare = final_fare
                 ride.save(update_fields=['final_fare'])

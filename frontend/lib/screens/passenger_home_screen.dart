@@ -29,6 +29,9 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
   List<Map<String, dynamic>> _nearbyPlaces = [];
   int _points = 0;
   String _tier = 'Inicial';
+  double _rating = 0;
+  int _ratingCount = 0;
+  int _totalRides = 0;
   LatLng _location = const LatLng(10.391, -75.4794);
   LatLng? _destinationLocation;
   String? _selectedDestination;
@@ -151,6 +154,9 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
         setState(() {
           _points = profile['points'] ?? 0;
           _tier = profile['tier'] ?? 'Inicial';
+          _rating = (profile['rating'] as num?)?.toDouble() ?? 0;
+          _ratingCount = profile['rating_count'] ?? 0;
+          _totalRides = profile['total_rides'] ?? 0;
         });
       }
     } catch (_) {}
@@ -938,6 +944,9 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
                   user: widget.user,
                   points: _points,
                   tier: _tier,
+                  rating: _rating,
+                  ratingCount: _ratingCount,
+                  totalRides: _totalRides,
                     onClose: () => setState(() => _menuExpanded = false),
                     onSectionSelected: _openMenuSection)),
             Positioned(
@@ -1042,11 +1051,17 @@ class _PassengerSideBar extends StatelessWidget {
       {required this.user,
       required this.points,
       required this.tier,
+        required this.rating,
+        required this.ratingCount,
+        required this.totalRides,
       required this.onClose,
       required this.onSectionSelected});
   final Map<String, dynamic> user;
   final int points;
   final String tier;
+      final double rating;
+      final int ratingCount;
+      final int totalRides;
   final VoidCallback onClose;
   final ValueChanged<String> onSectionSelected;
 
@@ -1100,6 +1115,36 @@ class _PassengerSideBar extends StatelessWidget {
                       color: Colors.white70,
                       fontSize: 13,
                       fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 8),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      ...List.generate(
+                          5,
+                          (index) => Icon(
+                                index < rating.round()
+                                    ? Icons.star
+                                    : Icons.star_border,
+                                color: const Color(0xFFE8F044),
+                                size: 20)),
+                      const SizedBox(width: 8),
+                        Text(
+                          ratingCount == 0
+                            ? 'Sin calificaciones'
+                            : '${rating.toStringAsFixed(2)} ($ratingCount)',
+                          style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700)),
+                    ],
+                  ),
+                    const SizedBox(height: 3),
+                    Text('$totalRides viajes realizados',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600)),
                   const SizedBox(height: 14),
               const Divider(color: Color(0xFF343638)),
               const SizedBox(height: 8),

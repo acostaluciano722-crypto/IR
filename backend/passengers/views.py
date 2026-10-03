@@ -245,6 +245,9 @@ class PassengerMeView(APIView):
             'name': request.user.get_full_name() or request.user.username,
             'points': profile.points,
             'tier': profile.tier,
+            'rating': profile.rating_sum / profile.rating_count if profile.rating_count else 0,
+            'rating_count': profile.rating_count,
+            'total_rides': profile.total_rides,
         })
 
 
@@ -499,6 +502,10 @@ class RideRatingView(APIView):
             if ride.driver_rating is not None:
                 return Response({'detail': 'Ya calificaste este viaje.'}, status=status.HTTP_409_CONFLICT)
             ride.driver_rating = rating
+            profile = PassengerProfile.objects.get(user_id=ride.passenger_id)
+            profile.rating_sum += rating
+            profile.rating_count += 1
+            profile.save(update_fields=['rating_sum', 'rating_count'])
             update_fields = ['driver_rating']
         ride.save(update_fields=update_fields)
         return Response(RideSerializer(ride).data)

@@ -1266,7 +1266,7 @@ class _DriverSideBar extends StatelessWidget {
                       (_) => const Icon(Icons.star,
                         color: IrPalette.accent, size: 20)),
                     const SizedBox(width: 8),
-                    Text('${rating.toStringAsFixed(2)} ($totalRides)',
+                    Text('${rating.toStringAsFixed(2)} · $totalRides viajes',
                       style: const TextStyle(
                         color: IrPalette.text,
                         fontSize: 15,

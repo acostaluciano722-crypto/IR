@@ -22,6 +22,8 @@ class PassengerProfile(models.Model):
     phone = models.CharField(max_length=20, blank=True)
     points = models.PositiveIntegerField(default=0)
     tier = models.CharField(max_length=40, default='Inicial')
+    rating_sum = models.PositiveIntegerField(default=0)
+    rating_count = models.PositiveIntegerField(default=0)
     referral_code = models.CharField(max_length=20, blank=True, unique=True, null=True)
     referred_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
