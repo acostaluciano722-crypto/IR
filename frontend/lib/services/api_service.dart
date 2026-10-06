@@ -9,7 +9,10 @@ class ApiService {
   final String baseUrl;
   String? token;
 
+  static const _configuredBaseUrl = String.fromEnvironment('API_BASE_URL');
+
   static String get _defaultBaseUrl {
+    if (_configuredBaseUrl.isNotEmpty) return _configuredBaseUrl;
     if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) {
       return 'http://127.0.0.1:8000/api';
     }

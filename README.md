@@ -8,13 +8,19 @@ Primer vertical slice de la plataforma de movilidad IR: login breve y flujo inic
 cd backend
 py -m venv .venv
 .venv\Scripts\activate
-pip install -r requirements.txt
-py manage.py migrate
-py manage.py createsuperuser
-py manage.py runserver
+.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\run_dev.ps1
 ```
 
-La API queda en `http://127.0.0.1:8000/api/`. El login usa `username` y `password`; el frontend Flutter apunta por defecto a `http://10.0.2.:8000/api` para Android Emulator.
+El lanzador comprueba el contenedor `ir_postgres_postgis`, toma su configuración sin imprimir ni guardar la contraseña, aplica las migraciones y sirve Django en `0.0.0.0:8000` para aceptar conexiones de Flutter. La base Docker debe publicar el puerto `5433`.
+
+Comprueba que la API y PostGIS respondan:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:8000/api/health/
+```
+
+Debe devolver `api: ok`, `database: ok` y `postgis: ok`. El login usa `username` y `password`, y devuelve un token firmado con vencimiento de siete días.
 
 ## Frontend
 
@@ -26,7 +32,13 @@ flutter pub get
 flutter run
 ```
 
-Para un dispositivo físico, cambia `baseUrl` en `frontend/lib/services/api_service.dart` por la IP local del equipo que ejecuta Django.
+En Android Emulator, `ApiService` usa `http://10.0.2.2:8000/api`; en Flutter Web y escritorio usa `http://127.0.0.1:8000/api`. Para un teléfono físico conectado a la misma red Wi-Fi que el PC, pasa la IPv4 del PC al ejecutar Flutter:
+
+```powershell
+flutter run --dart-define=API_BASE_URL=http://192.168.1.20:8000/api
+```
+
+Reemplaza `192.168.1.20` por la IPv4 que muestra `ipconfig`. Si Windows Firewall pregunta, permite el puerto `8000` en redes privadas. CORS y HTTP sin cifrar se habilitan solo en desarrollo; el manifiesto de release no permite HTTP claro.
 
 ## Mapa y búsqueda en tiempo real
 
@@ -35,7 +47,7 @@ La app usa Google Maps y Places Autocomplete. No guardes la clave en Git. Define
 ```powershell
 $env:GOOGLE_MAPS_API_KEY = 'TU_CLAVE_RESTRINGIDA'
 cd backend
-.venv\Scripts\python.exe manage.py runserver 127.0.0.1:8000
+.\run_dev.ps1
 ```
 
 En `frontend/web/index.html`, reemplaza localmente `GOOGLE_MAPS_API_KEY` por una clave nueva y restringida para `http://localhost:5353/*` y `http://127.0.0.1:5353/*`, o usa una copia local del archivo fuera de Git. Habilita en Google Cloud **Maps JavaScript API**, **Places API** y facturación con límites de uso. La clave del navegador y la del backend deben ser claves restringidas separadas.
@@ -46,7 +58,7 @@ Al seleccionar una sugerencia de Places, el backend obtiene sus coordenadas y ca
 
 ## Alcance actual
 
-- Login con token DRF.
+- Login sobre la tabla `USUARIO` con token firmado.
 - Perfil mínimo del pasajero: nombre, rango y puntos.
 - Solicitud de viaje con origen, destino y tipo Economy/Moto.
 - Historial de solicitudes del usuario.

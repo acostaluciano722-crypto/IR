@@ -2,9 +2,15 @@ import os
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-SECRET_KEY = 'dev-only-change-me'
-DEBUG = True
-ALLOWED_HOSTS = ['127.0.0.1', 'localhost', '0.0.0.0', '10.0.2.2']
+SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'dev-only-change-me')
+DEBUG = os.environ.get('DJANGO_DEBUG', 'true').strip().lower() in {'1', 'true', 'yes'}
+ALLOWED_HOSTS = [
+    host.strip()
+    for host in os.environ.get(
+        'ALLOWED_HOSTS', '127.0.0.1,localhost,0.0.0.0,10.0.2.2'
+    ).split(',')
+    if host.strip()
+]
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -14,10 +20,8 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'rest_framework',
-    'rest_framework.authtoken',
     'corsheaders',
-    'passengers',
-    'drivers',
+    'coredata',
 ]
 
 MIDDLEWARE = [
@@ -44,7 +48,7 @@ TEMPLATES = [{
 }]
 WSGI_APPLICATION = 'config.wsgi.application'
 
-DB_ENGINE = os.environ.get('DB_ENGINE', 'sqlite')
+DB_ENGINE = os.environ.get('DB_ENGINE', 'postgresql')
 
 if DB_ENGINE == 'postgresql':
     DATABASES = {
@@ -52,9 +56,10 @@ if DB_ENGINE == 'postgresql':
             'ENGINE': 'django.db.backends.postgresql',
             'NAME': os.environ.get('DB_NAME', 'ir_promaster_db'),
             'USER': os.environ.get('DB_USER', 'casaco'),
-            'PASSWORD': os.environ.get('DB_PASSWORD', 'uao561thor'),
-            'HOST': os.environ.get('DB_HOST', '100.122.205.24'),
+            'PASSWORD': os.environ.get('DB_PASSWORD', ''),
+            'HOST': os.environ.get('DB_HOST', '127.0.0.1'),
             'PORT': os.environ.get('DB_PORT', '5433'),
+            'CONN_MAX_AGE': 60,
         }
     }
 else:
@@ -75,21 +80,24 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
-        'rest_framework.authentication.TokenAuthentication',
+        'coredata.authentication.SignedTokenAuthentication',
     ],
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticated',
     ],
 }
 
+
 CORS_ALLOWED_ORIGINS = [
-    'http://localhost:5353',
-    'http://127.0.0.1:5353',
-    'http://localhost:5354',
-    'http://127.0.0.1:5354',
-    'http://localhost:5355',
-    'http://127.0.0.1:5355',
+    origin.strip()
+    for origin in os.environ.get(
+        'CORS_ALLOWED_ORIGINS',
+        'http://localhost:5353,http://127.0.0.1:5353,http://localhost:5354,http://127.0.0.1:5354,http://localhost:5355,http://127.0.0.1:5355',
+    ).split(',')
+    if origin.strip()
 ]
-CORS_ALLOW_ALL_ORIGINS = True
+CORS_ALLOW_ALL_ORIGINS = DEBUG and os.environ.get(
+    'CORS_ALLOW_ALL_ORIGINS', 'true'
+).strip().lower() in {'1', 'true', 'yes'}
 
 GOOGLE_MAPS_API_KEY = os.environ.get('GOOGLE_MAPS_API_KEY', '')

@@ -15,16 +15,35 @@ class RoleSectionScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Theme(
-      data: irDarkTheme(),
+    return ValueListenableBuilder<bool>(
+      valueListenable: irLightMode,
+      builder: (context, isLight, _) => Theme(
+      data: isLight ? irLightTheme() : irDarkTheme(),
       child: Scaffold(
         appBar: AppBar(title: Text(title)),
         body: ListView.separated(
         padding: const EdgeInsets.all(20),
-        itemCount: items.length,
+        itemCount: items.length + (title == 'Configuración' ? 1 : 0),
         separatorBuilder: (_, __) => const SizedBox(height: 12),
         itemBuilder: (_, index) {
-          final item = items[index];
+          if (title == 'Configuración' && index == 0) {
+            return Card(
+              child: SwitchListTile.adaptive(
+                contentPadding: const EdgeInsets.fromLTRB(16, 8, 12, 8),
+                secondary: Icon(
+                    isLight ? Icons.light_mode : Icons.dark_mode_outlined,
+                    color: isLight ? IrPalette.ink : IrPalette.accent),
+                title: const Text('Modo claro',
+                    style: TextStyle(fontWeight: FontWeight.w800)),
+                subtitle: const Text('Usar superficies claras en la app'),
+                value: isLight,
+                activeThumbColor: IrPalette.accent,
+                onChanged: (value) => irLightMode.value = value,
+              ),
+            );
+          }
+          final itemIndex = title == 'Configuración' ? index - 1 : index;
+          final item = items[itemIndex];
           return Card(
             child: ListTile(
               contentPadding: const EdgeInsets.all(16),
@@ -42,6 +61,7 @@ class RoleSectionScreen extends StatelessWidget {
           );
         },
         ),
+      ),
       ),
     );
   }

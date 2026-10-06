@@ -100,6 +100,150 @@
         "/^& 'C:\\\\Program Files\\\\Git\\\\cmd\\\\git\\.exe' -C 'C:\\\\Users\\\\sebas\\\\IR' add \\.vscode/settings\\.json backend/config/settings\\.py backend/modelos_generados\\.py; & 'C:\\\\Program Files\\\\Git\\\\cmd\\\\git\\.exe' -C 'C:\\\\Users\\\\sebas\\\\IR' diff --cached --check; & 'C:\\\\Program Files\\\\Git\\\\cmd\\\\git\\.exe' -C 'C:\\\\Users\\\\sebas\\\\IR' commit -m 'configura PostgreSQL y agrega modelos generados'$/": {
             "approve": true,
             "matchCommandLine": true
+        },
+        "/^git -C C:\\\\Users\\\\sebas\\\\IR add frontend/lib/screens/driver_home_screen\\.dart frontend/lib/screens/passenger_home_screen\\.dart; git -C C:\\\\Users\\\\sebas\\\\IR diff --cached --check; git -C C:\\\\Users\\\\sebas\\\\IR commit -m \"merge: integrar cambios de irl2 en main\"$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^git -C C:\\\\Users\\\\sebas\\\\IR stash pop \"stash@\\{0\\}\"$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^python C:\\\\Users\\\\sebas\\\\IR\\\\backend\\\\manage\\.py check$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^flutter doctor -v$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^cd C:\\\\Users\\\\sebas\\\\IR\\\\frontend; flutter create --platforms=android --org com\\.ir \\.$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^cd C:\\\\Users\\\\sebas\\\\IR\\\\frontend; flutter analyze$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^cd C:\\\\Users\\\\sebas\\\\IR\\\\frontend; flutter test$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^cd C:\\\\Users\\\\sebas\\\\IR\\\\frontend; flutter build apk --debug --dart-define=API_BASE_URL=http://10\\.0\\.2\\.2:8000/api$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^cd C:\\\\Users\\\\sebas\\\\IR\\\\frontend; flutter test --reporter expanded$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^Get-Command flutter \\| Select-Object Source; flutter config --list$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^flutter config --android-sdk \"C:\\\\Users\\\\sebas\\\\AppData\\\\Local\\\\Android\\\\Sdk\"; flutter doctor -v$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^cd C:\\\\Users\\\\sebas\\\\IR\\\\frontend; flutter build apk --debug --dart-define=API_BASE_URL=http://192\\.168\\.1\\.46:8000/api$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^flutter build apk --debug --dart-define=API_BASE_URL=http://192\\.168\\.1\\.46:8000/api$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^C:\\\\Users\\\\sebas\\\\IR\\\\frontend\\\\android\\\\gradlew\\.bat --stop$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^Get-Location; git status --short; flutter --version$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^Set-Location frontend; flutter pub get; flutter build apk --release$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^Set-Location frontend; flutter build apk --release$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^& \"C:\\\\Users\\\\sebas\\\\AppData\\\\Local\\\\Android\\\\Sdk\\\\cmdline-tools\\\\latest\\\\bin\\\\sdkmanager\\.bat\" --sdk_root=\"C:\\\\Users\\\\sebas\\\\AppData\\\\Local\\\\Android\\\\Sdk\" \"ndk/28\\.2\\.13676358\"$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^flutter build apk --release$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^type \"C:\\\\Users\\\\sebas\\\\AppData\\\\Roaming\\\\Code\\\\copilot-terminal-output\\\\copilot-terminal-output-d37308f5-3954-49c8-ad3a-586627a2b142\\.txt\"$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^Test-Path \"C:\\\\Users\\\\sebas\\\\AppData\\\\Local\\\\Android\\\\Sdk\\\\ndk\\\\28\\.2\\.13676358\"$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^cd /d C:\\\\Users\\\\sebas\\\\IR\\\\frontend ; flutter build apk --release$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^python manage\\.py runserver 127\\.0\\.0\\.1:8000$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^flutter run -d chrome --web-port 8080$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^\\.\\\\\\.agents\\\\skills\\\\impeccable\\\\scripts\\\\impeccable\\.cmd context --target frontend/lib/screens/login_screen\\.dart$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^Set-Location frontend; flutter analyze lib/ui/ir_theme\\.dart lib/screens/appearance_settings_screen\\.dart lib/screens/mock_passenger_app\\.dart lib/screens/passenger_home_screen\\.dart lib/screens/driver_home_screen\\.dart$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^flutter analyze lib/ui/ir_theme\\.dart lib/screens/appearance_settings_screen\\.dart lib/screens/mock_passenger_app\\.dart lib/screens/passenger_home_screen\\.dart lib/screens/driver_home_screen\\.dart$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^flutter analyze lib/screens/role_section_screen\\.dart lib/screens/passenger_home_screen\\.dart lib/screens/driver_home_screen\\.dart lib/screens/appearance_settings_screen\\.dart$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^Set-Location C:\\\\Users\\\\sebas\\\\IR\\\\frontend; & C:\\\\Users\\\\sebas\\\\develop\\\\flutter\\\\bin\\\\flutter\\.bat build apk --release$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^cmd /c dir C:\\\\Users\\\\sebas\\\\IR\\\\frontend\\\\build\\\\app\\\\outputs\\\\flutter-apk\\\\app-release\\.apk$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^C:\\\\Users\\\\sebas\\\\develop\\\\flutter\\\\bin\\\\flutter\\.bat analyze lib/screens/mock_passenger_app\\.dart lib/screens/role_section_screen\\.dart$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^C:\\\\Users\\\\sebas\\\\develop\\\\flutter\\\\bin\\\\flutter\\.bat build apk --release$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^& 'C:\\\\Users\\\\sebas\\\\develop\\\\flutter\\\\bin\\\\flutter\\.bat' analyze lib/screens/mock_passenger_app\\.dart lib/screens/role_section_screen\\.dart$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^& 'C:\\\\Users\\\\sebas\\\\develop\\\\flutter\\\\bin\\\\flutter\\.bat' build apk --release$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^& 'C:\\\\Users\\\\sebas\\\\develop\\\\flutter\\\\bin\\\\flutter\\.bat' analyze lib/screens/login_screen\\.dart$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^& 'C:\\\\Users\\\\sebas\\\\develop\\\\flutter\\\\bin\\\\flutter\\.bat' run -d chrome --web-port 8080$/": {
+            "approve": true,
+            "matchCommandLine": true
         }
     }
 }
