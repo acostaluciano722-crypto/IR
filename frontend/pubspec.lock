@@ -148,18 +148,18 @@ packages:
     dependency: "direct main"
     description:
       name: geolocator
-      sha256: e146a6d63776582651e97a79cbe459f8e1211b100101fadcd84db83361fa599f
+      sha256: "4e41ad6bc072364ff01822531dac47936c065e5bf8f928f240a25bb51256ada0"
       url: "https://pub.dev"
     source: hosted
-    version: "14.0.3"
+    version: "14.1.1"
   geolocator_android:
     dependency: transitive
     description:
       name: geolocator_android
-      sha256: "86ea1654e4f61ff51466848e91c116b422d6010ea269fda0fbe1af7e9e742ce1"
+      sha256: "1be90ea8aaaf9db8e7816b4fe0387f082ee8b5cf03355912dad90fb0a75717fa"
       url: "https://pub.dev"
     source: hosted
-    version: "5.0.3"
+    version: "5.1.1+1"
   geolocator_apple:
     dependency: transitive
     description:
@@ -180,10 +180,10 @@ packages:
     dependency: transitive
     description:
       name: geolocator_platform_interface
-      sha256: "94db8255dc183d268765df682580440617ca35877fc82cacb5420ad03b86198d"
+      sha256: b640b6b687b14c66f51fe1130b1c2e8babbd408e0158052b92006b6675ca77fc
       url: "https://pub.dev"
     source: hosted
-    version: "4.3.0"
+    version: "4.4.0"
   geolocator_web:
     dependency: transitive
     description:
@@ -212,18 +212,18 @@ packages:
     dependency: "direct main"
     description:
       name: google_maps_flutter
-      sha256: "90f9d01eb282f996769defff95f15ebd8650a79c7e105c42a51a23f1376df612"
+      sha256: "92b73931215d03057bb76c2207373851081c41bd1562f909a8bb14a98f9d7baa"
       url: "https://pub.dev"
     source: hosted
-    version: "2.18.0"
+    version: "2.18.2"
   google_maps_flutter_android:
     dependency: transitive
     description:
       name: google_maps_flutter_android
-      sha256: "50bf2abde65d1abbb4505c709b20a6d5e36436b1c4830d1f36bfc20fbef091bd"
+      sha256: "9247f703b646e85c72213007853908ad473eb85dac73747f5dc9d370b8250b5c"
       url: "https://pub.dev"
     source: hosted
-    version: "2.19.13"
+    version: "2.21.0"
   google_maps_flutter_ios:
     dependency: transitive
     description:
@@ -236,18 +236,18 @@ packages:
     dependency: transitive
     description:
       name: google_maps_flutter_platform_interface
-      sha256: "574d35a89847731b10cd93e18e9374c8fcd30c6a868255f70bf7196ad71cdfb9"
+      sha256: "742e86787abac8b08352aaf31b2d1fffc77038ab2e9ebd8d4d7013eec9e97218"
       url: "https://pub.dev"
     source: hosted
-    version: "2.16.1"
+    version: "2.17.0"
   google_maps_flutter_web:
     dependency: transitive
     description:
       name: google_maps_flutter_web
-      sha256: "29f056fae0e923e81fe4e76e6cc147209b11c18ba67d0bf2e1579abffa1a48dc"
+      sha256: e9a78255ea50db294f9a6949d8b144313ed5555497dcab21b198022aaaa56641
       url: "https://pub.dev"
     source: hosted
-    version: "0.6.3"
+    version: "0.6.4+1"
   gsettings:
     dependency: transitive
     description:
@@ -348,10 +348,10 @@ packages:
     dependency: transitive
     description:
       name: package_info_plus
-      sha256: "127e1751e37ffb2ff4658beeaca77bad0c27bf5f932bd3a501c2296926d4b481"
+      sha256: "73ef2cd5c11a7548f9b7f6fc2a4f6113de2e64aa2a70de63feede95548822908"
       url: "https://pub.dev"
     source: hosted
-    version: "10.2.1"
+    version: "10.2.2"
   package_info_plus_platform_interface:
     dependency: transitive
     description:
@@ -526,5 +526,5 @@ packages:
     source: hosted
     version: "7.0.1"
 sdks:
-  dart: ">=3.12.0 <4.0.0"
-  flutter: ">=3.44.0"
+  dart: ">=3.13.0 <4.0.0"
+  flutter: ">=3.47.0"

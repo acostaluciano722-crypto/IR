@@ -4,8 +4,11 @@ import '../services/api_service.dart';
 import '../ui/ir_brand.dart';
 import '../ui/ir_theme.dart';
 import 'driver_home_screen.dart';
+import 'mock_passenger_app.dart';
 import 'passenger_home_screen.dart';
 import 'register_screen.dart';
+
+const bool modoDemo = false;
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -31,6 +34,11 @@ class _LoginScreenState extends State<LoginScreen> {
 
   Future<void> _login() async {
     FocusScope.of(context).unfocus();
+    if (modoDemo) {
+      Navigator.of(context).pushReplacement(MaterialPageRoute(
+          builder: (_) => const MockPassengerApp()));
+      return;
+    }
     setState(() {
       _loading = true;
       _error = null;

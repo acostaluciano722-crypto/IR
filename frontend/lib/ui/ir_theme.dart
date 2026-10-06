@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+final ValueNotifier<bool> irLightMode = ValueNotifier<bool>(false);
+
 abstract final class IrPalette {
   static const ink = Color(0xFF171B1D);
   static const surface = Color(0xFF111213);
@@ -44,4 +46,31 @@ ThemeData irDarkTheme() => ThemeData(
         color: IrPalette.accent,
         linearTrackColor: IrPalette.border,
       ),
+    );
+
+ThemeData irLightTheme() => ThemeData(
+      useMaterial3: true,
+      brightness: Brightness.light,
+      scaffoldBackgroundColor: const Color(0xFFF7F7F2),
+      colorScheme: ColorScheme.fromSeed(
+        seedColor: IrPalette.accent,
+        brightness: Brightness.light,
+        surface: const Color(0xFFF7F7F2),
+      ),
+      fontFamily: 'Arial',
+      appBarTheme: const AppBarTheme(
+        backgroundColor: Color(0xFFF7F7F2),
+        foregroundColor: IrPalette.ink,
+        elevation: 0,
+        centerTitle: false,
+      ),
+      cardTheme: CardThemeData(
+        color: Colors.white,
+        margin: EdgeInsets.zero,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.all(Radius.circular(14)),
+          side: BorderSide(color: Color(0xFFD9D9D0)),
+        ),
+      ),
+      dividerTheme: const DividerThemeData(color: Color(0xFFD9D9D0)),
     );

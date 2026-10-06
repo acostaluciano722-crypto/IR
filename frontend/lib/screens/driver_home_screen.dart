@@ -138,7 +138,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                 !_dismissedRatedRideIds.contains(_rideId(ride)))
             .toList());
       }
-          await _refreshActiveDriverRoute();
+      await _refreshActiveDriverRoute();
       final active = _activeRideData;
       if (active != null) await _publishDriverLocation(active['id'] as int);
     } catch (_) {}
@@ -156,8 +156,8 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
     final status = ride['status']?.toString();
     final driver = _coordinate(ride['driver_lat']) != null &&
             _coordinate(ride['driver_lng']) != null
-        ? LatLng(_coordinate(ride['driver_lat'])!,
-            _coordinate(ride['driver_lng'])!)
+        ? LatLng(
+            _coordinate(ride['driver_lat'])!, _coordinate(ride['driver_lng'])!)
         : _driverLocation;
     final pickup = LatLng(
         _coordinate(ride['origin_lat']) ??
@@ -166,8 +166,9 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
         _coordinate(ride['origin_lng']) ??
             _coordinate(ride['passenger_lng']) ??
             driver.longitude);
-    final destination = LatLng(_coordinate(ride['destination_lat']) ??
-        pickup.latitude, _coordinate(ride['destination_lng']) ?? pickup.longitude);
+    final destination = LatLng(
+        _coordinate(ride['destination_lat']) ?? pickup.latitude,
+        _coordinate(ride['destination_lng']) ?? pickup.longitude);
     final target = status == 'in_progress' ? destination : pickup;
     final key =
         '${ride['id']}:$status:${driver.latitude.toStringAsFixed(4)}:${driver.longitude.toStringAsFixed(4)}:${target.latitude.toStringAsFixed(4)}:${target.longitude.toStringAsFixed(4)}';
@@ -302,15 +303,13 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
 
   Future<void> _recenterDriverMap() async {
     _mapRecenterTimer?.cancel();
-    await _animateDriverCamera(
-        CameraUpdate.newLatLngZoom(_driverLocation, 16));
+    await _animateDriverCamera(CameraUpdate.newLatLngZoom(_driverLocation, 16));
   }
 
   Future<void> _onDriverMapCreated(GoogleMapController controller) async {
     _mapController = controller;
     await _startDriverLocationTracking();
-    await _animateDriverCamera(
-        CameraUpdate.newLatLngZoom(_driverLocation, 16));
+    await _animateDriverCamera(CameraUpdate.newLatLngZoom(_driverLocation, 16));
   }
 
   Future<void> _animateDriverCamera(CameraUpdate update) async {
@@ -361,10 +360,10 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
     if (code == null || code.trim().isEmpty) return;
     try {
       await widget.api.verifyRidePickupCode(rideId, code.trim());
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Viaje iniciado correctamente.')));
-        }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Viaje iniciado correctamente.')));
+      }
       await _loadProfile();
     } on ApiException catch (error) {
       if (mounted) {
@@ -528,7 +527,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
               const Scaffold(body: Center(child: CircularProgressIndicator())));
     }
 
-        final hasActiveRide = _showDriverMap && _activeRideData != null;
+    final hasActiveRide = _showDriverMap && _activeRideData != null;
 
     return Theme(
       data: irDarkTheme(),
@@ -562,8 +561,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                   top: 12,
                   right: 16,
                   child: _DriverRoundAction(
-                      icon: Icons.my_location,
-                      onPressed: _recenterDriverMap)),
+                      icon: Icons.my_location, onPressed: _recenterDriverMap)),
             Positioned.fill(
               child: Align(
                 alignment: Alignment.bottomCenter,
@@ -573,8 +571,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                     initialChildSize: hasActiveRide ? .52 : .92,
                     minChildSize: hasActiveRide ? .24 : .80,
                     maxChildSize: 1.0,
-                    snapSizes:
-                      hasActiveRide
+                    snapSizes: hasActiveRide
                         ? const [.24, .52, .90, 1.0]
                         : const [.92],
                     snap: true,
@@ -598,9 +595,9 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                               const SizedBox(height: 14),
                               _DriverPointsPanel(points: _points, tier: _tier),
                               const SizedBox(height: 16),
-                                    _DriverStatusPill(
-                                      status: _status, onTap: _toggleStatus),
-                                    const SizedBox(height: 16),
+                              _DriverStatusPill(
+                                  status: _status, onTap: _toggleStatus),
+                              const SizedBox(height: 16),
                               _driverContent(),
                             ],
                           ),
@@ -649,11 +646,11 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
     markers.add(Marker(
       markerId: const MarkerId('driver-current-location'),
       position: _driverLocation,
-        icon: isMoto
+      icon: isMoto
           ? (_motoMarkerAsset ??
-            BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange))
+              BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange))
           : (_carMarkerAsset ??
-            BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure)),
+              BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure)),
       infoWindow: InfoWindow(
           title: isMoto ? 'Moto del conductor' : 'Carro del conductor',
           snippet: 'Ubicación actual en tiempo real'),
@@ -704,8 +701,8 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
         markers.add(Marker(
           markerId: const MarkerId('active-destination'),
           position: LatLng(destinationLat, destinationLng),
-          icon: BitmapDescriptor.defaultMarkerWithHue(
-              BitmapDescriptor.hueYellow),
+          icon:
+              BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueYellow),
           zIndexInt: 2,
           infoWindow: InfoWindow(
               title: active['destination']?.toString() ?? 'Destino',
@@ -936,11 +933,13 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
           ride: ride, onRate: _ratePassenger, onSkip: _skipPassengerRating);
     }
     final next = <String, String>{
+      'accepted': 'en_route',
       'en_route': 'arrived',
       'in_progress': 'completed',
       'completed': 'validated',
     }[status];
     final labels = {
+      'accepted': 'Iniciar ruta',
       'en_route': 'Marcar llegada',
       'arrived': 'Iniciar viaje',
       'in_progress': 'Finalizar viaje',
@@ -979,6 +978,15 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                               distanceKm: ride['live_distance_km']),
                         const SizedBox(height: 14),
                         Chip(label: Text('Estado: $status')),
+                        if (next != null)
+                          SizedBox(
+                              width: double.infinity,
+                              child: ElevatedButton.icon(
+                                  onPressed: () => _advanceRide(ride!, next),
+                                  icon: Icon(status == 'en_route'
+                                      ? Icons.location_on_outlined
+                                      : Icons.navigation_outlined),
+                                  label: Text(labels[status]!))),
                         if (status == 'arrived')
                           SizedBox(
                               width: double.infinity,
@@ -988,21 +996,6 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                                   icon: const Icon(Icons.verified_outlined),
                                   label: const Text(
                                       'Introducir código e iniciar'))),
-                                if (status == 'accepted' || status == 'en_route')
-                                  SizedBox(
-                                    width: double.infinity,
-                                    child: OutlinedButton.icon(
-                                      onPressed: null,
-                                      icon: const Icon(Icons.lock_outline),
-                                      label: const Text(
-                                        'Introducir código e iniciar · marca llegada primero'))),
-                        if (next != null)
-                          SizedBox(
-                              width: double.infinity,
-                              child: ElevatedButton.icon(
-                                  onPressed: () => _advanceRide(ride!, next),
-                                  icon: const Icon(Icons.arrow_forward),
-                                  label: Text(labels[status]!))),
                         if (status == 'completed')
                           const Padding(
                               padding: EdgeInsets.only(top: 8),
@@ -1266,37 +1259,35 @@ class _DriverSideBar extends StatelessWidget {
                     onPressed: onClose,
                     icon: const Icon(Icons.close, color: IrPalette.muted)),
               ]),
-                const SizedBox(height: 14),
-                const CircleAvatar(
+              const SizedBox(height: 14),
+              const CircleAvatar(
                   radius: 28,
                   backgroundColor: IrPalette.accent,
                   child: Icon(Icons.person, color: IrPalette.ink, size: 30)),
-                const SizedBox(height: 10),
-                Text(user['name']?.toString() ?? 'Conductor IR',
+              const SizedBox(height: 10),
+              Text(user['name']?.toString() ?? 'Conductor IR',
                   textAlign: TextAlign.center,
                   style: const TextStyle(
-                    color: IrPalette.text,
-                    fontSize: 20,
-                    fontWeight: FontWeight.w800)),
-                const SizedBox(height: 4),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                    ...List.generate(
-                      5,
-                      (_) => const Icon(Icons.star,
+                      color: IrPalette.text,
+                      fontSize: 20,
+                      fontWeight: FontWeight.w800)),
+              const SizedBox(height: 4),
+              Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                ...List.generate(
+                    5,
+                    (_) => const Icon(Icons.star,
                         color: IrPalette.accent, size: 20)),
-                    const SizedBox(width: 8),
-                    Text('${rating.toStringAsFixed(2)} · $totalRides viajes',
-                      style: const TextStyle(
+                const SizedBox(width: 8),
+                Text('${rating.toStringAsFixed(2)} · $totalRides viajes',
+                    style: const TextStyle(
                         color: IrPalette.text,
                         fontSize: 15,
                         fontWeight: FontWeight.w700)),
-                    ]),
-                  const SizedBox(height: 3),
-                  Text('$ratingCount calificaciones',
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(color: IrPalette.muted, fontSize: 12)),
+              ]),
+              const SizedBox(height: 3),
+              Text('$ratingCount calificaciones',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: IrPalette.muted, fontSize: 12)),
               const Divider(color: IrPalette.border),
               const SizedBox(height: 8),
               ..._items.map((item) => Padding(
