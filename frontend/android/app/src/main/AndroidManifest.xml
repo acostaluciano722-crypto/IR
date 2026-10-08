@@ -3,7 +3,8 @@
     <application
         android:label="IR"
         android:name="${applicationName}"
-        android:icon="@drawable/ic_launcher_ir">
+        android:icon="@drawable/ic_launcher_ir"
+        android:usesCleartextTraffic="true">
         <activity
             android:name=".MainActivity"
             android:exported="true"
