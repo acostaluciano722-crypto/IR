@@ -1,13 +1,16 @@
 import 'package:flutter/material.dart';
 
+import '../ui/ir_components.dart';
+import '../ui/ir_page_body.dart';
 import '../ui/ir_theme.dart';
 
 class PointsScreen extends StatelessWidget {
-  const PointsScreen(
-      {required this.role,
-      required this.points,
-      required this.tier,
-      super.key});
+  const PointsScreen({
+    required this.role,
+    required this.points,
+    required this.tier,
+    super.key,
+  });
 
   final String role;
   final int points;
@@ -16,66 +19,96 @@ class PointsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDriver = role == 'driver';
-    return Theme(
-      data: irDarkTheme(),
-      child: Scaffold(
-        appBar: AppBar(title: const Text('Puntos')),
-        body: ListView(
-        padding: const EdgeInsets.all(20),
-        children: [
-          Text('Puntos ${isDriver ? 'conductor' : 'pasajero'}',
-              style: const TextStyle(
-                color: IrPalette.text,
-                fontSize: 24,
-                fontWeight: FontWeight.w800)),
-          const SizedBox(height: 8),
-          const Text(
-              'Esta sección muestra únicamente actividad y progreso ProMaster. Los puntos no son dinero.',
-              style: TextStyle(color: IrPalette.muted)),
-          const SizedBox(height: 20),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('$points PI',
-                        style: const TextStyle(
-                            fontSize: 34, fontWeight: FontWeight.w900)),
-                    const SizedBox(height: 6),
-                    Text('Nivel actual: $tier',
-                        style: const TextStyle(
-                            fontSize: 16, fontWeight: FontWeight.w700)),
-                    const SizedBox(height: 18),
-                    const Text('Progreso PI',
-                        style: TextStyle(fontWeight: FontWeight.w700)),
-                    const SizedBox(height: 8),
-                    LinearProgressIndicator(value: _progress(points, isDriver)),
-                    const SizedBox(height: 8),
-                    Text(
+    return Scaffold(
+      appBar: AppBar(title: const Text('Puntos')),
+      body: IrEditorialBackdrop(
+        child: IrPageBody(
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 36),
+            children: [
+              IrEntrance(
+                child: IrPageIntro(
+                  title: 'Puntos ${isDriver ? 'conductor' : 'pasajero'}',
+                  description:
+                      'Tu actividad y avance dentro de ProMaster, explicados con claridad.',
+                ),
+              ),
+              const SizedBox(height: 28),
+              IrEntrance(
+                delay: const Duration(milliseconds: 80),
+                child: IrPanel(
+                  accent: true,
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('PUNTOS DISPONIBLES',
+                          textScaler: TextScaler.noScaling,
+                          style: TextStyle(
+                              color: IrPalette.ink.withValues(alpha: .68),
+                              fontSize: 10,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: 1.6)),
+                      const SizedBox(height: 8),
+                      Text('$points PI',
+                          style: const TextStyle(
+                              color: IrPalette.ink,
+                              fontSize: 44,
+                              height: 1,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: -2)),
+                      const SizedBox(height: 10),
+                      Text('Nivel actual: $tier',
+                          style: const TextStyle(
+                              color: IrPalette.ink,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w800)),
+                      const SizedBox(height: 24),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(99),
+                        child: LinearProgressIndicator(
+                          minHeight: 7,
+                          value: _progress(points, isDriver),
+                          color: IrPalette.ink,
+                          backgroundColor: IrPalette.ink.withValues(alpha: .16),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Text(
                         isDriver
-                            ? 'Driver PI = débito válido consumido / COP 10'
-                            : 'Passenger PI = tarifa final válida / COP 20',
-                        style: const TextStyle(
-                            fontSize: 12, color: IrPalette.muted)),
-                  ]),
-            ),
+                            ? 'PI conductor = débito válido consumido / COP 10'
+                            : 'PI pasajero = tarifa final válida / COP 20',
+                        style: TextStyle(
+                            color: IrPalette.ink.withValues(alpha: .75),
+                            fontSize: 12,
+                            height: 1.35),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
+              const IrEntrance(
+                delay: Duration(milliseconds: 140),
+                child: IrInfoRow(
+                  icon: Icons.account_tree_outlined,
+                  title: 'PG-I y PG-D',
+                  description:
+                      'Los puntos de red se calculan por actividad válida de descendientes y se muestran separados de PI.',
+                ),
+              ),
+              const SizedBox(height: 12),
+              const IrEntrance(
+                delay: Duration(milliseconds: 200),
+                child: IrInfoRow(
+                  icon: Icons.lock_outline,
+                  title: 'Regla ProMaster',
+                  description:
+                      'PI, PG y UP miden actividad o elegibilidad. No crean dinero ni garantizan una bonificación.',
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 16),
-          const Card(
-              child: ListTile(
-                  leading: Icon(Icons.account_tree_outlined),
-                  title: Text('PG-I y PG-D'),
-                  subtitle: Text(
-                      'Los puntos de red se calculan por actividad válida de descendientes y se muestran separados de PI.'))),
-          const SizedBox(height: 12),
-          const Card(
-              child: ListTile(
-                  leading: Icon(Icons.lock_outline),
-                  title: Text('Regla ProMaster'),
-                  subtitle: Text(
-                      'PI, PG y UP miden actividad o elegibilidad. No crean dinero ni garantizan una bonificación.'))),
-        ],
         ),
       ),
     );

@@ -60,6 +60,7 @@ if DB_ENGINE == 'postgresql':
             'HOST': os.environ.get('DB_HOST', '127.0.0.1'),
             'PORT': os.environ.get('DB_PORT', '5433'),
             'CONN_MAX_AGE': 60,
+            'TEST': {'NAME': os.environ.get('DB_TEST_NAME')},
         }
     }
 else:

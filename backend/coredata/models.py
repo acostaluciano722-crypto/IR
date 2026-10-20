@@ -253,7 +253,7 @@ class SupportTicket(ExternalTable):
     user = models.ForeignKey(Usuario, models.DO_NOTHING, db_column='id_usuario', null=True, blank=True)
     ride = models.ForeignKey(Ride, models.DO_NOTHING, db_column='id_viaje', null=True, blank=True)
     issue_type = models.CharField(max_length=50, db_column='tipo_incidencia', null=True, blank=True)
-    description = models.TextField(null=True, blank=True)
+    description = models.TextField(db_column='descripcion', null=True, blank=True)
     status = models.CharField(max_length=20, db_column='estado_ticket', null=True, blank=True)
     created_at = models.DateTimeField(db_column='fecha_apertura', null=True, blank=True)
 

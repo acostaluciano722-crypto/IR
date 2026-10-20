@@ -244,6 +244,14 @@
         "/^& 'C:\\\\Users\\\\sebas\\\\develop\\\\flutter\\\\bin\\\\flutter\\.bat' run -d chrome --web-port 8080$/": {
             "approve": true,
             "matchCommandLine": true
+        },
+        "/^if \\(Test-Path backend\\\\\\.venv\\\\Scripts\\\\python\\.exe\\) \\{ Write-Output 'backend_venv=yes' \\} else \\{ Write-Output 'backend_venv=no' \\}; flutter --version; docker ps --format '\\{\\{\\.Names\\}\\} \\{\\{\\.Status\\}\\}'$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^cd C:\\\\Users\\\\pc\\\\IR\\\\backend; \\.\\\\run_dev\\.ps1$/": {
+            "approve": true,
+            "matchCommandLine": true
         }
     }
 }

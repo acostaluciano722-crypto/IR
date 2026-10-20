@@ -22,6 +22,14 @@ Invoke-RestMethod http://127.0.0.1:8000/api/health/
 
 Debe devolver `api: ok`, `database: ok` y `postgis: ok`. El login usa `username` y `password`, y devuelve un token firmado con vencimiento de siete días.
 
+## Verificar PostgreSQL y consultar cuentas
+
+Desde `backend`, ejecuta `./run_dev.ps1 -CheckOnly` para aplicar migraciones y comprobar las tablas, columnas, PostGIS y cantidades de registros. El lanzador obtiene el puerto publicado y las credenciales del contenedor existente, sin imprimir la contraseña.
+
+En DBeaver, usa `localhost:5433`, base `ir_promaster_db` y esquema `public`. Abre `backend/verify_database.sql` y vuelve a ejecutar la consulta para ver todas las cuentas y sus perfiles. El filtro `LIKE 'dbcheck.%@example.test'` muestra únicamente cuentas de prueba; excluye los usuarios registrados con otro correo.
+
+`backend/run_tests.ps1` comprueba el registro, el login, los perfiles y los vehículos en una base temporal de PostgreSQL/PostGIS. Copia únicamente el esquema y elimina la base temporal al terminar.
+
 ## Frontend
 
 Requiere instalar Flutter y tenerlo en el `PATH`.

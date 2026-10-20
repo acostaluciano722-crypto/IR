@@ -76,20 +76,20 @@ class _MockPassengerAppState extends State<MockPassengerApp> {
                       Navigator.pop(context);
                       Navigator.of(context).push(MaterialPageRoute(
                           builder: (_) => RoleSectionScreen(
-                              title: 'Configuración',
-                              role: 'passenger',
-                              items: const [
-                                SectionItem(
-                                    icon: Icons.settings_outlined,
-                                    title: 'Preferencias de la cuenta',
-                                    description:
-                                        'Administra tus preferencias como pasajero.'),
-                                SectionItem(
-                                    icon: Icons.notifications_none_outlined,
-                                    title: 'Notificaciones',
-                                    description:
-                                        'Configura los avisos de tus viajes.'),
-                              ])));
+                                  title: 'Configuración',
+                                  role: 'passenger',
+                                  items: const [
+                                    SectionItem(
+                                        icon: Icons.settings_outlined,
+                                        title: 'Preferencias de la cuenta',
+                                        description:
+                                            'Administra tus preferencias como pasajero.'),
+                                    SectionItem(
+                                        icon: Icons.notifications_none_outlined,
+                                        title: 'Notificaciones',
+                                        description:
+                                            'Configura los avisos de tus viajes.'),
+                                  ])));
                     }),
                   ],
                 ),
@@ -108,7 +108,8 @@ class _MockPassengerAppState extends State<MockPassengerApp> {
 
   static const _titles = ['Inicio', 'Viajes', 'ProMaster', 'Soporte', 'Perfil'];
 
-  Widget _drawerItem(IconData icon, String title, VoidCallback onTap) => ListTile(
+  Widget _drawerItem(IconData icon, String title, VoidCallback onTap) =>
+      ListTile(
         leading: Icon(icon),
         title: Text(title),
         onTap: onTap,
@@ -127,8 +128,7 @@ class _DemoPassengerHome extends StatelessWidget {
     final muted = isLight ? const Color(0xFF5F6368) : IrPalette.muted;
     return Stack(
       children: [
-        Positioned.fill(
-            child: _DemoMap(isLight: isLight)),
+        Positioned.fill(child: _DemoMap(isLight: isLight)),
         Positioned(
           top: 18,
           right: 18,
@@ -138,7 +138,8 @@ class _DemoPassengerHome extends StatelessWidget {
                     shape: const CircleBorder(),
                     child: IconButton(
                       tooltip: 'Abrir menú',
-                      icon: const Icon(Icons.menu, color: Colors.white, size: 32),
+                      icon:
+                          const Icon(Icons.menu, color: Colors.white, size: 32),
                       onPressed: () => Scaffold.of(context).openDrawer(),
                     ),
                   )),
@@ -159,11 +160,13 @@ class _DemoPassengerHome extends StatelessWidget {
                     width: 66,
                     height: 6,
                     decoration: BoxDecoration(
-                        color: muted,
-                        borderRadius: BorderRadius.circular(20))),
+                        color: muted, borderRadius: BorderRadius.circular(20))),
                 const SizedBox(height: 16),
                 Row(children: const [
-                  _VehicleOption(icon: Icons.directions_car, label: 'Viaje', selected: true),
+                  _VehicleOption(
+                      icon: Icons.directions_car,
+                      label: 'Viaje',
+                      selected: true),
                   SizedBox(width: 10),
                   _VehicleOption(icon: Icons.two_wheeler, label: 'Moto'),
                   SizedBox(width: 10),
@@ -176,10 +179,13 @@ class _DemoPassengerHome extends StatelessWidget {
                   width: double.infinity,
                   padding: const EdgeInsets.all(14),
                   decoration: BoxDecoration(
-                      color: isLight ? const Color(0xFFF0F0E8) : IrPalette.raised,
+                      color:
+                          isLight ? const Color(0xFFF0F0E8) : IrPalette.raised,
                       borderRadius: BorderRadius.circular(14),
                       border: Border.all(
-                          color: isLight ? const Color(0xFFD9D9D0) : IrPalette.border)),
+                          color: isLight
+                              ? const Color(0xFFD9D9D0)
+                              : IrPalette.border)),
                   child: Row(children: [
                     const Icon(Icons.stars, color: IrPalette.accent, size: 34),
                     const SizedBox(width: 12),
@@ -187,21 +193,24 @@ class _DemoPassengerHome extends StatelessWidget {
                         child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                          Text('ProMaster pasajero', style: TextStyle(color: muted)),
+                          Text('ProMaster pasajero',
+                              style: TextStyle(color: muted)),
                           Text('1836 PI · Nivel Plata',
                               style: TextStyle(
                                   color: isLight ? IrPalette.ink : Colors.white,
                                   fontSize: 17,
                                   fontWeight: FontWeight.w800)),
                         ])),
-                    Text('COP 20 = 1 PI', style: TextStyle(color: muted, fontSize: 12)),
+                    Text('COP 20 = 1 PI',
+                        style: TextStyle(color: muted, fontSize: 12)),
                   ]),
                 ),
                 const SizedBox(height: 14),
                 TextField(
                     onChanged: state.setDestination,
                     decoration: const InputDecoration(
-                        hintText: '¿A dónde vas?', prefixIcon: Icon(Icons.search))),
+                        hintText: '¿A dónde vas?',
+                        prefixIcon: Icon(Icons.search))),
                 const SizedBox(height: 12),
                 FilledButton.icon(
                     onPressed: () => state.prepareTrip(),
@@ -217,7 +226,8 @@ class _DemoPassengerHome extends StatelessWidget {
 }
 
 class _VehicleOption extends StatelessWidget {
-  const _VehicleOption({required this.icon, required this.label, this.selected = false});
+  const _VehicleOption(
+      {required this.icon, required this.label, this.selected = false});
   final IconData icon;
   final String label;
   final bool selected;
@@ -230,7 +240,8 @@ class _VehicleOption extends StatelessWidget {
               color: selected ? IrPalette.accent : const Color(0xFF191A1B),
               borderRadius: BorderRadius.circular(16),
               border: Border.all(
-                  color: selected ? IrPalette.accent : const Color(0xFF3A3B3C))),
+                  color:
+                      selected ? IrPalette.accent : const Color(0xFF3A3B3C))),
           child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
             Icon(icon,
                 color: selected ? IrPalette.ink : Colors.white70, size: 34),
@@ -250,11 +261,11 @@ class _DemoMap extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => CustomPaint(
-      foregroundPainter: _DemoMapPainter(isLight: isLight),
+        foregroundPainter: _DemoMapPainter(isLight: isLight),
         child: Container(
             color: isLight ? const Color(0xFFE6E5E1) : const Color(0xFF182027)),
       );
-  }
+}
 
 class _DemoMapPainter extends CustomPainter {
   const _DemoMapPainter({required this.isLight});
@@ -266,7 +277,8 @@ class _DemoMapPainter extends CustomPainter {
       ..color = isLight ? const Color(0xFFD2D0CA) : const Color(0xFF28333E)
       ..strokeWidth = 2;
     for (var x = -size.height; x < size.width; x += 90) {
-      canvas.drawLine(Offset(x, 0), Offset(x + size.height, size.height), paint);
+      canvas.drawLine(
+          Offset(x, 0), Offset(x + size.height, size.height), paint);
     }
     for (var y = 80.0; y < size.height; y += 100) {
       canvas.drawLine(Offset(0, y), Offset(size.width, y - 30), paint);

@@ -15,19 +15,40 @@ class IrLogoMark extends StatelessWidget {
       height: size,
       decoration: BoxDecoration(
         color: IrPalette.accent,
-        borderRadius: BorderRadius.circular(size * .25),
+        borderRadius: BorderRadius.only(
+          topLeft: Radius.circular(size * .28),
+          topRight: Radius.circular(size * .28),
+          bottomRight: Radius.circular(size * .28),
+          bottomLeft: Radius.circular(size * .08),
+        ),
       ),
       alignment: Alignment.center,
-      child: Text(
-        'IR',
-        style: TextStyle(
-          color: IrPalette.ink,
-          fontFamily: 'Georgia',
-          fontSize: size * .38,
-          fontWeight: FontWeight.w900,
-          letterSpacing: -size * .045,
-          height: .9,
-        ),
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          Text(
+            'IR',
+            textScaler: TextScaler.noScaling,
+            style: TextStyle(
+              color: IrPalette.ink,
+              fontFamily: 'Georgia',
+              fontSize: size * .38,
+              fontWeight: FontWeight.w900,
+              letterSpacing: -size * .014,
+              height: .9,
+            ),
+          ),
+          Positioned(
+            top: size * .13,
+            right: size * .13,
+            child: Container(
+              width: size * .07,
+              height: size * .07,
+              decoration: const BoxDecoration(
+                  color: IrPalette.ink, shape: BoxShape.circle),
+            ),
+          ),
+        ],
       ),
     );
 
@@ -35,12 +56,13 @@ class IrLogoMark extends StatelessWidget {
     return Row(children: [
       mark,
       const SizedBox(width: 12),
-      const Text('IR',
+      Text('IR',
+          textScaler: TextScaler.noScaling,
           style: TextStyle(
-              color: IrPalette.text,
+              color: context.irColors.text,
               fontSize: 26,
               fontWeight: FontWeight.w900,
-              letterSpacing: -1.5)),
+              letterSpacing: -.7)),
     ]);
   }
 }

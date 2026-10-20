@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../ui/ir_theme.dart';
+import '../ui/ir_page_body.dart';
+import '../ui/ir_components.dart';
 
 class AppearanceSettingsScreen extends StatelessWidget {
   const AppearanceSettingsScreen({super.key});
@@ -13,12 +15,20 @@ class AppearanceSettingsScreen extends StatelessWidget {
         data: isLight ? irLightTheme() : irDarkTheme(),
         child: Scaffold(
           appBar: AppBar(title: const Text('Configuración')),
-          body: ListView(
-            padding: const EdgeInsets.all(20),
+          body: IrEditorialBackdrop(
+              child: IrPageBody(
+                  child: ListView(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 36),
             children: [
-              Card(
+              const IrPageIntro(
+                  title: 'Tu apariencia',
+                  description:
+                      'Elige el contraste que mejor se adapte a tu recorrido.'),
+              const SizedBox(height: 28),
+              IrPanel(
+                padding: EdgeInsets.zero,
                 child: SwitchListTile.adaptive(
-                  contentPadding: const EdgeInsets.fromLTRB(16, 8, 12, 8),
+                  contentPadding: const EdgeInsets.fromLTRB(18, 8, 12, 8),
                   secondary: Icon(
                       isLight ? Icons.light_mode : Icons.dark_mode_outlined,
                       color: isLight ? IrPalette.ink : IrPalette.accent),
@@ -31,7 +41,7 @@ class AppearanceSettingsScreen extends StatelessWidget {
                 ),
               ),
             ],
-          ),
+          ))),
         ),
       ),
     );

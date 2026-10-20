@@ -1,38 +1,14 @@
+param([switch]$CheckOnly)
+
 $ErrorActionPreference = 'Stop'
 
-$containerName = 'ir_postgres_postgis'
 $python = Join-Path $PSScriptRoot '.venv\Scripts\python.exe'
 
 if (-not (Test-Path -LiteralPath $python)) {
     throw 'No encuentro backend\.venv. Crea el entorno e instala requirements.txt primero.'
 }
 
-$containerEnvironment = @(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' $containerName)
-if ($LASTEXITCODE -ne 0) {
-    throw "No pude leer la configuración del contenedor $containerName."
-}
-
-$databaseSettings = @{
-    POSTGRES_DB = 'DB_NAME'
-    POSTGRES_USER = 'DB_USER'
-    POSTGRES_PASSWORD = 'DB_PASSWORD'
-}
-foreach ($setting in $databaseSettings.Keys) {
-    $entry = $containerEnvironment | Where-Object { $_.StartsWith("$setting=") } | Select-Object -First 1
-    if (-not $entry) {
-        throw "Falta $setting en la configuración del contenedor $containerName."
-    }
-    Set-Item -Path "Env:$($databaseSettings[$setting])" -Value $entry.Substring($setting.Length + 1)
-}
-
-docker exec $containerName pg_isready -U $env:DB_USER -d $env:DB_NAME *> $null
-if ($LASTEXITCODE -ne 0) {
-    throw "El contenedor $containerName no está listo. Inícialo con docker compose antes de continuar."
-}
-
-$env:DB_ENGINE = 'postgresql'
-$env:DB_HOST = '127.0.0.1'
-$env:DB_PORT = '5433'
+. (Join-Path $PSScriptRoot 'docker_database.ps1')
 $env:DJANGO_DEBUG = 'true'
 $env:CORS_ALLOW_ALL_ORIGINS = 'true'
 
@@ -50,6 +26,12 @@ try {
     if ($LASTEXITCODE -ne 0) {
         throw 'No se pudieron aplicar/verificar las migraciones.'
     }
+
+    & $python manage.py check_database
+    if ($LASTEXITCODE -ne 0) {
+        throw 'La base de datos no tiene el esquema que necesita la API.'
+    }
+    if ($CheckOnly) { return }
 
     & $python manage.py runserver 0.0.0.0:8000
     exit $LASTEXITCODE

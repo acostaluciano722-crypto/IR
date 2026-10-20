@@ -128,3 +128,25 @@ La hoja usa 30px en su borde superior. Campos y resúmenes usan 14-18px; viajes 
 - **Don't:** Reintroducir una ruta o etiqueta de “prototipo”.
 - **Don't:** Añadir degradados, sombras duras, tarjetas anidadas o colores de acento adicionales.
 - **Don't:** Ocultar ruta, tarifa, estado u ofertas detrás de decoración.
+
+## Apariencia y movimiento
+
+La apariencia clara usa fondo `#F7F7F2`, superficies blancas, texto `#171B1D` y secundarios `#565B53`. El acento para texto e iconos pasa a `#596000` para mantener el contraste; los botones principales y las selecciones conservan el amarillo limón con texto carbón. Los colores semánticos compartidos se resuelven en `ir_theme.dart`.
+
+La bienvenida presenta el logo con una entrada de 420 ms. Al elegir iniciar sesión o crear una cuenta, una única secuencia de ruta amarilla y marca IR acompaña la transición de 620 ms; la salida dura 240 ms y no se interpone en el arranque ni en el envío de formularios. Los botones responden al toque con una escala de 0,97 durante 120 ms y al cursor de escritorio con un aumento sutil de 1,015. Los cambios de selección y tamaño usan transiciones breves sin rebote. Los estados de carga usan el acento IR con contraste legible. Las animaciones respetan la preferencia de reducir movimiento, sustituyendo el movimiento espacial por un fundido breve. La navegación posterior conserva las transiciones nativas.
+
+Los formularios limitan el ancho a 480 dp; las páginas de lectura y configuración a 760 dp. Los controles principales tienen al menos 48 dp de área táctil. Las acciones se apilan en pantallas estrechas o con texto ampliado, y los paneles dejan espacio para el teclado y la barra de controles al expandirse.
+
+## Dirección editorial
+
+La interfaz usa una retícula cartográfica tenue y una línea de ruta como fondo ambiental en las pantallas sin mapa. La composición es asimétrica: títulos de gran escala y alineación izquierda conducen hacia paneles de acción compactos. En tabletas, acceso y registro dividen explicación y formulario en dos columnas; en móvil mantienen el mismo orden dentro de un desplazamiento seguro.
+
+Las métricas principales se presentan sobre amarillo limón con texto carbón. Las acciones y la información secundaria viven en paneles de 18–22 dp, con bordes finos y sin sombras. Los selectores de rol y categoría expanden la opción activa horizontalmente para comunicar selección sin añadir otro color.
+
+Las entradas de contenido combinan opacidad, desplazamiento vertical breve y escala durante 420 ms. La banda de ruta de bienvenida se mueve de forma continua y discreta. Ambas animaciones se detienen y muestran su estado final cuando el sistema solicita reducir movimiento. La carga inicial del conductor y la consulta de cartera usan un estado de espera compartido, anunciado como región viva y con la marca y el acento de IR.
+
+## Mapa y panel adaptable
+
+La hoja de viaje intercepta sus propios eventos de puntero para que arrastrar, desplazar o pulsar dentro de ella no mueva el mapa situado debajo. Los controles flotantes, la tarjeta de navegación y el menú lateral aplican el mismo aislamiento.
+
+En pantallas bajas la hoja abre a mayor altura para mantener visibles categorías, puntos y búsqueda. En móvil ocupa todo el ancho con márgenes reducidos; entre 720 y 1199 dp se limita a 680 dp, y desde 1200 dp a 760 dp. Las cuatro categorías forman una fila completa cuando hay espacio suficiente y conservan desplazamiento horizontal en móviles o con texto ampliado.

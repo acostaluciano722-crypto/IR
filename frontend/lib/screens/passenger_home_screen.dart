@@ -2,9 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:pointer_interceptor/pointer_interceptor.dart';
 import 'dart:async';
 
 import '../services/api_service.dart';
+import '../ui/ir_theme.dart';
+import '../ui/ir_motion.dart';
+import '../ui/ir_auth_layout.dart';
+import '../ui/ir_format.dart';
+import '../ui/ir_map_layout.dart';
+import 'welcome_screen.dart';
 import 'bonus_screen.dart';
 import 'points_screen.dart';
 import 'role_section_screen.dart';
@@ -19,6 +26,9 @@ class PassengerHomeScreen extends StatefulWidget {
 }
 
 class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
+  final _scaffoldKey = GlobalKey<ScaffoldState>();
+  bool _refreshingRides = false;
+  int _searchVersion = 0;
   final _destination = TextEditingController();
   final _origin = TextEditingController(text: 'Mi ubicación actual');
   String _vehicle = 'economy';
@@ -51,8 +61,10 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
   bool _loading = false;
   bool _menuExpanded = false;
   bool _navigationCardCondensed = false;
+  bool _sheetAtTop = false;
   bool _isProgrammaticCameraMove = false;
-  int _sheetVersion = 0;
+  bool _keyboardOpen = false;
+  double? _restingSheetSize;
   String? _message;
 
   @override
@@ -64,6 +76,25 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
     _startLocationTracking();
     _rideRefreshTimer =
         Timer.periodic(const Duration(seconds: 5), (_) => _loadRides());
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final layout = IrMapLayout.of(context);
+    final previousRestingSize = _restingSheetSize;
+    _restingSheetSize = layout.passengerResting;
+    final open = MediaQuery.viewInsetsOf(context).bottom > 0;
+    if (open != _keyboardOpen ||
+        (previousRestingSize != null &&
+            previousRestingSize != _restingSheetSize)) {
+      _keyboardOpen = open;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _rideSheetController.isAttached) {
+          _rideSheetController.jumpTo(open ? .90 : _restingSheetSize!);
+        }
+      });
+    }
   }
 
   @override
@@ -80,6 +111,8 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
   }
 
   Future<void> _loadRides() async {
+    if (_refreshingRides) return;
+    _refreshingRides = true;
     try {
       final rides = await widget.api.getRides();
       if (mounted) {
@@ -90,7 +123,14 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
             .toList());
       }
       await _refreshActiveRideRoute();
-    } catch (_) {}
+    } catch (_) {
+      if (mounted) {
+        setState(() => _message =
+            'No se pudieron actualizar tus viajes. Revisa tu conexión.');
+      }
+    } finally {
+      _refreshingRides = false;
+    }
   }
 
   Future<void> _loadVehicleMarkerAssets() async {
@@ -210,13 +250,17 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
   }
 
   Future<void> _rateRide(int rideId, int rating) async {
-    _closeRideReview(rideId);
     try {
       await widget.api.rateRide(rideId, rating);
+      _closeRideReview(rideId);
       _dismissedRatedRideIds.add(rideId);
       await _loadRides();
     } on ApiException catch (error) {
-      if (mounted) setState(() => _message = error.message);
+      if (mounted) {
+        setState(() => _message = error.message);
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.message)));
+      }
     }
   }
 
@@ -232,9 +276,13 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
     if (!mounted) return;
     setState(() {
       _rides = _rides.where((ride) => _asInt(ride['id']) != rideId).toList();
-      _sheetVersion++;
     });
     _clearDestination();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _rideSheetController.isAttached) {
+        _rideSheetController.jumpTo(.43);
+      }
+    });
   }
 
   Future<void> _cancelRide(int rideId, String reason) async {
@@ -503,6 +551,7 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
 
   Future<void> _searchPlaces(String query) async {
     _searchDebounce?.cancel();
+    final version = ++_searchVersion;
     if (query.trim().length < 3) {
       setState(() => _suggestions = []);
       return;
@@ -510,9 +559,14 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
     _searchDebounce = Timer(const Duration(milliseconds: 350), () async {
       try {
         final suggestions = await widget.api.searchPlaces(query.trim());
-        if (mounted) setState(() => _suggestions = suggestions);
-      } on ApiException catch (error) {
-        if (mounted) setState(() => _message = error.message);
+        if (mounted && version == _searchVersion) {
+          setState(() => _suggestions = suggestions);
+        }
+      } catch (_) {
+        if (mounted && version == _searchVersion) {
+          setState(() =>
+              _message = 'No se pudo buscar el destino. Inténtalo de nuevo.');
+        }
       }
     });
   }
@@ -626,7 +680,14 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
   }
 
   void _openMenuSection(String value) {
-    setState(() => _menuExpanded = false);
+    _scaffoldKey.currentState?.closeDrawer();
+    if (value == 'logout') {
+      widget.api.token = null;
+      Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => const WelcomeScreen()),
+          (_) => false);
+      return;
+    }
     final screen = value == 'points'
         ? PointsScreen(role: 'passenger', points: _points, tier: _tier)
         : value == 'bonus'
@@ -636,9 +697,9 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
                     ? 'Historial de viajes'
                     : value == 'support'
                         ? 'Soporte IR'
-                      : value == 'settings'
-                        ? 'Configuración'
-                        : 'Perfil',
+                        : value == 'settings'
+                            ? 'Configuración'
+                            : 'Perfil',
                 role: 'passenger',
                 items: _passengerSectionItems(
                     value,
@@ -667,7 +728,7 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
         LatLngBounds(
             southwest: LatLng(minLat, minLng),
             northeast: LatLng(maxLat, maxLng)),
-      72));
+        72));
   }
 
   Set<Polyline> get _routeLines {
@@ -680,7 +741,7 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
           Polyline(
             polylineId: const PolylineId('active-ride-route'),
             points: activePoints,
-            color: const Color(0xFFE8F044),
+            color: context.irColors.accent,
             width: 7,
             jointType: JointType.round,
           ),
@@ -696,7 +757,7 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
       Polyline(
         polylineId: const PolylineId('ride-route'),
         points: points,
-        color: const Color(0xFFE8F044),
+        color: context.irColors.accent,
         width: 6,
         jointType: JointType.round,
       ),
@@ -756,209 +817,230 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-        backgroundColor: const Color(0xFF171B1D),
-        body: SafeArea(
-          bottom: false,
-          child: Stack(children: [
-            Positioned.fill(
-              child: GoogleMap(
-                initialCameraPosition: const CameraPosition(
-                    target: LatLng(10.405, -75.505), zoom: 14.5),
-                onMapCreated: _onMapCreated,
-                onCameraMoveStarted: _schedulePassengerMapRecenter,
-                onCameraIdle: _schedulePassengerMapRecenter,
-                myLocationButtonEnabled: false,
-                myLocationEnabled: true,
-                zoomControlsEnabled: false,
-                scrollGesturesEnabled: true,
-                webGestureHandling: WebGestureHandling.greedy,
-                zoomGesturesEnabled: true,
-                rotateGesturesEnabled: true,
-                tiltGesturesEnabled: true,
-                markers: {
-                  Marker(
-                    markerId: const MarkerId('current-location'),
-                    position: _location,
-                    icon: BitmapDescriptor.defaultMarkerWithHue(
-                        BitmapDescriptor.hueYellow),
-                    infoWindow: const InfoWindow(
-                        title: 'Tu ubicación',
-                        snippet: 'Ubicación activa en tiempo real'),
-                  ),
-                  if (_destinationLocation != null &&
-                      (_activeRide == null ||
-                          _activeRide!['status'] == 'in_progress'))
-                    Marker(
-                        markerId: const MarkerId('destination'),
-                        position: _destinationLocation!,
-                        icon: BitmapDescriptor.defaultMarkerWithHue(
-                            BitmapDescriptor.hueYellow),
-                        zIndexInt: 2,
-                        infoWindow: InfoWindow(
-                            title: _destination.text,
-                            snippet: 'Destino seleccionado')),
-                      if (_activeRide != null &&
-                        {'accepted', 'driver_selected'}.contains(
-                          _activeRide!['status']) &&
-                        _ridePoint(_activeRide!, 'origin_lat', 'origin_lng') !=
-                          null)
-                      Marker(
-                        markerId: const MarkerId('pickup-location'),
-                        position: _ridePoint(
-                          _activeRide!, 'origin_lat', 'origin_lng')!,
-                        icon: BitmapDescriptor.defaultMarkerWithHue(
-                          BitmapDescriptor.hueYellow),
-                        zIndexInt: 2,
-                        infoWindow: const InfoWindow(
-                          title: 'Punto de partida',
-                          snippet: 'Tu conductor va hacia aquí'),
-                      ),
-                  if (_activeRide?['driver_lat'] != null &&
-                      _activeRide?['driver_lng'] != null)
-                    Marker(
-                      markerId: const MarkerId('driver-location'),
-                      position: LatLng(
-                        _asDouble(_activeRide!['driver_lat'])!,
-                        _asDouble(_activeRide!['driver_lng'])!,
-                      ),
-                        icon: _driverMarkerIcon(_activeRide!),
-                      infoWindow: InfoWindow(
-                          title: _driverMarkerTitle(_activeRide!),
-                          snippet: {
-                            'accepted',
-                            'driver_selected'
-                          }.contains(_activeRide?['status'])
-                              ? 'Se acerca a tu punto de partida'
-                              : 'Se dirige a tu destino'),
-                    ),
-                },
-                polylines: _routeLines,
-                style: _googleMapStyle,
-              ),
-            ),
-            Positioned(
-                top: 18,
-                right: 18,
-                child: _RoundAction(
-                    icon: Icons.my_location, onPressed: _recenterOnUser)),
-            Positioned(
-              top: 84,
-              left: 20,
-              right: 20,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (_destination.text.isNotEmpty &&
-                      !_menuExpanded &&
-                      !{
-                        'accepted',
-                        'driver_selected',
-                        'en_route',
-                        'arrived',
-                        'in_progress',
-                      }.contains(_activeRide?['status'])) ...[
-                    const SizedBox(height: 8),
-                    _NavigationCard(
-                        destination: _destination.text,
-                        route: _route,
-                        nextStep: _nextStep(_route),
-                        condensed: _navigationCardCondensed),
-                  ],
-                ],
-              ),
-            ),
-            Positioned.fill(
-              child: NotificationListener<DraggableScrollableNotification>(
-                onNotification: (notification) {
-                  final condensed = notification.extent >= 0.52;
-                  if (condensed != _navigationCardCondensed && mounted) {
-                    setState(() => _navigationCardCondensed = condensed);
-                  }
-                  return false;
-                },
-                child: Align(
-                  alignment: Alignment.bottomCenter,
-                  child: DraggableScrollableSheet(
-                    key: ValueKey('passenger-ride-sheet-$_sheetVersion'),
-                    controller: _rideSheetController,
-                    expand: false,
-                    initialChildSize: 0.43,
-                    minChildSize: 0.24,
-                    maxChildSize: 1.0,
-                    snapSizes: const [0.24, 0.43, 0.90, 1.0],
-                    snap: true,
-                    builder: (context, controller) => _RideSheet(
-                      controller: controller,
-                      sheetController: _rideSheetController,
-                      destinationController: _destination,
-                      origin: _origin.text,
-                      vehicle: _vehicle,
-                      loading: _loading,
-                      message: _message,
-                      route: _route,
-                      rides: _rides,
-                      points: _points,
-                      tier: _tier,
-                      suggestions: _suggestions,
-                      nearbyPlaces: _nearbyPlaces,
-                      activeRide: _activeRide,
-                      onVehicleChanged: (value) =>
-                          setState(() => _vehicle = value),
-                      onSuggestionSelected: (place) => _selectDestination(
-                          place['description'].toString(),
-                          place['place_id']?.toString()),
-                      onNearbySelected: (place) => _selectDestination(
-                          place['name'].toString(),
-                          place['place_id']?.toString()),
-                      onQueryChanged: _onDestinationChanged,
-                      fare: _route == null
-                          ? null
-                          : _decreeFareFor(_destination.text, _vehicle),
-                      onRequestRide: _requestRide,
-                      onSelectOffer: _selectOffer,
-                      onRejectOffer: _rejectOffer,
-                      onCancelRide: _cancelRide,
-                      onRateRide: _rateRide,
-                      onSkipRating: _skipRideRating,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-            if (_menuExpanded)
-              Positioned.fill(
-                  child: GestureDetector(
-                      onTap: () => setState(() => _menuExpanded = false),
-                      child: Container(
-                          color:
-                              const Color(0xFF000000).withValues(alpha: .42)))),
-            AnimatedPositioned(
-                duration: const Duration(milliseconds: 220),
-                curve: Curves.easeOutCubic,
-                top: 0,
-                bottom: 0,
-                left: _menuExpanded ? 0 : -324,
-                width: 308,
-                child: _PassengerSideBar(
+  Widget build(BuildContext context) {
+    final layout = IrMapLayout.of(context);
+    return Scaffold(
+      key: _scaffoldKey,
+      onDrawerChanged: (open) => setState(() => _menuExpanded = open),
+      drawer: Drawer(
+          width: MediaQuery.sizeOf(context).width.clamp(0, 340).toDouble(),
+          child: PointerInterceptor(
+              child: _PassengerSideBar(
                   user: widget.user,
                   points: _points,
                   tier: _tier,
                   rating: _rating,
                   ratingCount: _ratingCount,
                   totalRides: _totalRides,
-                    onClose: () => setState(() => _menuExpanded = false),
-                    onSectionSelected: _openMenuSection)),
-            Positioned(
-                top: 16,
+                  onClose: () => _scaffoldKey.currentState?.closeDrawer(),
+                  onSectionSelected: _openMenuSection))),
+      backgroundColor: context.irColors.surface,
+      body: SafeArea(
+        bottom: false,
+        child: Stack(children: [
+          Positioned.fill(
+            child: GoogleMap(
+              initialCameraPosition: const CameraPosition(
+                  target: LatLng(10.405, -75.505), zoom: 14.5),
+              onMapCreated: _onMapCreated,
+              onCameraMoveStarted: _schedulePassengerMapRecenter,
+              onCameraIdle: _schedulePassengerMapRecenter,
+              myLocationButtonEnabled: false,
+              myLocationEnabled: _hasInitialLocation,
+              zoomControlsEnabled: false,
+              scrollGesturesEnabled: true,
+              webGestureHandling: WebGestureHandling.greedy,
+              zoomGesturesEnabled: true,
+              rotateGesturesEnabled: true,
+              tiltGesturesEnabled: true,
+              markers: {
+                Marker(
+                  markerId: const MarkerId('current-location'),
+                  position: _location,
+                  icon: BitmapDescriptor.defaultMarkerWithHue(
+                      BitmapDescriptor.hueYellow),
+                  infoWindow: const InfoWindow(
+                      title: 'Tu ubicación',
+                      snippet: 'Ubicación activa en tiempo real'),
+                ),
+                if (_destinationLocation != null &&
+                    (_activeRide == null ||
+                        _activeRide!['status'] == 'in_progress'))
+                  Marker(
+                      markerId: const MarkerId('destination'),
+                      position: _destinationLocation!,
+                      icon: BitmapDescriptor.defaultMarkerWithHue(
+                          BitmapDescriptor.hueYellow),
+                      zIndexInt: 2,
+                      infoWindow: InfoWindow(
+                          title: _destination.text,
+                          snippet: 'Destino seleccionado')),
+                if (_activeRide != null &&
+                    {'accepted', 'driver_selected'}
+                        .contains(_activeRide!['status']) &&
+                    _ridePoint(_activeRide!, 'origin_lat', 'origin_lng') !=
+                        null)
+                  Marker(
+                    markerId: const MarkerId('pickup-location'),
+                    position:
+                        _ridePoint(_activeRide!, 'origin_lat', 'origin_lng')!,
+                    icon: BitmapDescriptor.defaultMarkerWithHue(
+                        BitmapDescriptor.hueYellow),
+                    zIndexInt: 2,
+                    infoWindow: const InfoWindow(
+                        title: 'Punto de partida',
+                        snippet: 'Tu conductor va hacia aquí'),
+                  ),
+                if (_activeRide?['driver_lat'] != null &&
+                    _activeRide?['driver_lng'] != null)
+                  Marker(
+                    markerId: const MarkerId('driver-location'),
+                    position: LatLng(
+                      _asDouble(_activeRide!['driver_lat'])!,
+                      _asDouble(_activeRide!['driver_lng'])!,
+                    ),
+                    icon: _driverMarkerIcon(_activeRide!),
+                    infoWindow: InfoWindow(
+                        title: _driverMarkerTitle(_activeRide!),
+                        snippet: {'accepted', 'driver_selected'}
+                                .contains(_activeRide?['status'])
+                            ? 'Se acerca a tu punto de partida'
+                            : 'Se dirige a tu destino'),
+                  ),
+              },
+              polylines: _routeLines,
+              style: context.irColors.light ? null : _googleMapStyle,
+            ),
+          ),
+          Positioned(
+              top: 18,
               right: 18,
-                child: _RoundAction(
-                    icon: _menuExpanded ? Icons.close : Icons.menu,
-                    onPressed: () =>
-                        setState(() => _menuExpanded = !_menuExpanded))),
-          ]),
-        ),
-      );
+              child: PointerInterceptor(
+                  child: IrMapAction(
+                      icon: Icons.my_location,
+                      label: 'Centrar en mi ubicación',
+                      onPressed: _recenterOnUser))),
+          Positioned(
+            top: 84,
+            left: 20,
+            right: 20,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (_destination.text.isNotEmpty &&
+                    !_menuExpanded &&
+                    !_navigationCardCondensed &&
+                    MediaQuery.viewInsetsOf(context).bottom == 0 &&
+                    !{
+                      'accepted',
+                      'driver_selected',
+                      'en_route',
+                      'arrived',
+                      'in_progress',
+                    }.contains(_activeRide?['status'])) ...[
+                  const SizedBox(height: 8),
+                  Align(
+                    alignment: Alignment.topCenter,
+                    child: ConstrainedBox(
+                      constraints:
+                          BoxConstraints(maxWidth: layout.sheetMaxWidth),
+                      child: PointerInterceptor(
+                        child: _NavigationCard(
+                            destination: _destination.text,
+                            route: _route,
+                            nextStep: _nextStep(_route),
+                            condensed: _navigationCardCondensed),
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          Positioned.fill(
+            child: NotificationListener<DraggableScrollableNotification>(
+              onNotification: (notification) {
+                final condensed = notification.extent >= 0.52;
+                final atTop = notification.extent >= .88;
+                if ((condensed != _navigationCardCondensed ||
+                        atTop != _sheetAtTop) &&
+                    mounted) {
+                  setState(() {
+                    _navigationCardCondensed = condensed;
+                    _sheetAtTop = atTop;
+                  });
+                }
+                return false;
+              },
+              child: Align(
+                alignment: Alignment.bottomCenter,
+                child: DraggableScrollableSheet(
+                  controller: _rideSheetController,
+                  expand: false,
+                  initialChildSize: layout.passengerResting,
+                  minChildSize: layout.passengerMinimum,
+                  maxChildSize: 1.0,
+                  snapSizes: layout.passengerSnapSizes,
+                  snap: true,
+                  builder: (context, controller) => Align(
+                      alignment: Alignment.bottomCenter,
+                      child: ConstrainedBox(
+                          constraints:
+                              BoxConstraints(maxWidth: layout.sheetMaxWidth),
+                          child: PointerInterceptor(
+                              child: _RideSheet(
+                            reserveToolbar: _sheetAtTop,
+                            layout: layout,
+                            controller: controller,
+                            sheetController: _rideSheetController,
+                            destinationController: _destination,
+                            origin: _origin.text,
+                            vehicle: _vehicle,
+                            loading: _loading,
+                            message: _message,
+                            route: _route,
+                            rides: _rides,
+                            points: _points,
+                            tier: _tier,
+                            suggestions: _suggestions,
+                            nearbyPlaces: _nearbyPlaces,
+                            activeRide: _activeRide,
+                            onVehicleChanged: (value) =>
+                                setState(() => _vehicle = value),
+                            onSuggestionSelected: (place) => _selectDestination(
+                                place['description'].toString(),
+                                place['place_id']?.toString()),
+                            onNearbySelected: (place) => _selectDestination(
+                                place['name'].toString(),
+                                place['place_id']?.toString()),
+                            onQueryChanged: _onDestinationChanged,
+                            fare: _route == null
+                                ? null
+                                : _decreeFareFor(_destination.text, _vehicle),
+                            onRequestRide: _requestRide,
+                            onSelectOffer: _selectOffer,
+                            onRejectOffer: _rejectOffer,
+                            onCancelRide: _cancelRide,
+                            onRateRide: _rateRide,
+                            onSkipRating: _skipRideRating,
+                          )))),
+                ),
+              ),
+            ),
+          ),
+          Positioned(
+              top: 18,
+              left: 18,
+              child: PointerInterceptor(
+                  child: IrMapAction(
+                      icon: Icons.menu,
+                      label: 'Abrir menú',
+                      onPressed: () =>
+                          _scaffoldKey.currentState?.openDrawer()))),
+        ]),
+      ),
+    );
+  }
 }
 
 double? _asDouble(dynamic value) {
@@ -996,7 +1078,7 @@ List<SectionItem> _passengerSectionItems(
             icon: Icons.route,
             title: '${ride['origin']} → ${ride['destination']}',
             description:
-                'Estado: ${ride['status']} · Tarifa: COP ${ride['final_fare'] == 0 ? ride['offer_amount'] : ride['final_fare']}'))
+                'Estado: ${irRideStatus(ride['status']?.toString())} · Tarifa: COP ${ride['final_fare'] == 0 ? ride['offer_amount'] : ride['final_fare']}'))
         .toList();
   }
   if (section == 'support') {
@@ -1051,17 +1133,17 @@ class _PassengerSideBar extends StatelessWidget {
       {required this.user,
       required this.points,
       required this.tier,
-        required this.rating,
-        required this.ratingCount,
-        required this.totalRides,
+      required this.rating,
+      required this.ratingCount,
+      required this.totalRides,
       required this.onClose,
       required this.onSectionSelected});
   final Map<String, dynamic> user;
   final int points;
   final String tier;
-      final double rating;
-      final int ratingCount;
-      final int totalRides;
+  final double rating;
+  final int ratingCount;
+  final int totalRides;
   final VoidCallback onClose;
   final ValueChanged<String> onSectionSelected;
 
@@ -1072,81 +1154,84 @@ class _PassengerSideBar extends StatelessWidget {
     ('support', 'Soporte', Icons.support_agent_outlined),
     ('profile', 'Perfil', Icons.person_outline),
     ('settings', 'Configuración', Icons.settings_outlined),
+    ('logout', 'Cerrar sesión', Icons.logout),
   ];
 
   @override
   Widget build(BuildContext context) => Material(
-        color: const Color(0xFF111213),
-        elevation: 10,
+        color: context.irColors.surface,
+        elevation: 0,
         child: SafeArea(
           child: ListView(
-            padding: const EdgeInsets.fromLTRB(16, 82, 16, 20),
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
             children: [
               Row(children: [
-                const Expanded(
+                Expanded(
                     child: Text('IR',
                         style: TextStyle(
-                            color: Color(0xFFE8F044),
+                            color: context.irColors.accent,
                             fontSize: 28,
                             fontWeight: FontWeight.w900,
                             letterSpacing: -1))),
                 IconButton(
                     tooltip: 'Cerrar menú',
                     onPressed: onClose,
-                    icon: const Icon(Icons.close, color: Colors.white70)),
+                    icon: Icon(Icons.close, color: context.irColors.muted)),
               ]),
               const SizedBox(height: 8),
-                  const CircleAvatar(
-                    radius: 28,
-                    backgroundColor: Color(0xFFE8F044),
-                    child: Icon(Icons.person,
-                      color: Color(0xFF171B1D), size: 30)),
-                  const SizedBox(height: 10),
-                  Text(user['name']?.toString() ?? 'Usuario IR',
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      color: Colors.white,
+              CircleAvatar(
+                  radius: 28,
+                  backgroundColor: IrPalette.accent,
+                  child:
+                      Icon(Icons.person, color: Color(0xFF171B1D), size: 30)),
+              const SizedBox(height: 10),
+              Text(user['name']?.toString() ?? 'Usuario IR',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                      color: context.irColors.text,
                       fontSize: 20,
                       fontWeight: FontWeight.w800)),
-                  const SizedBox(height: 4),
-                  Text('Nivel $tier · $points PI',
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      color: Colors.white70,
+              const SizedBox(height: 4),
+              Text('Nivel $tier · $points PI',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                      color: context.irColors.muted,
                       fontSize: 13,
                       fontWeight: FontWeight.w600)),
-                  const SizedBox(height: 8),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      ...List.generate(
-                          5,
-                          (index) => Icon(
-                                index < rating.round()
-                                    ? Icons.star
-                                    : Icons.star_border,
-                                color: const Color(0xFFE8F044),
-                                size: 20)),
-                      const SizedBox(width: 8),
-                        Text(
-                          ratingCount == 0
-                            ? 'Sin calificaciones'
-                            : '${rating.toStringAsFixed(2)} ($ratingCount)',
-                          style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 13,
-                              fontWeight: FontWeight.w700)),
-                    ],
-                  ),
-                    const SizedBox(height: 3),
-                    Text('$totalRides viajes realizados',
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        color: Colors.white70,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600)),
-                  const SizedBox(height: 14),
-              const Divider(color: Color(0xFF343638)),
+              const SizedBox(height: 8),
+              Wrap(
+                alignment: WrapAlignment.center,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                runSpacing: 4,
+                children: [
+                  ...List.generate(
+                      5,
+                      (index) => Icon(
+                          index < rating.round()
+                              ? Icons.star
+                              : Icons.star_border,
+                          color: context.irColors.accent,
+                          size: 20)),
+                  const SizedBox(width: 8),
+                  Text(
+                      ratingCount == 0
+                          ? 'Sin calificaciones'
+                          : '${rating.toStringAsFixed(2)} ($ratingCount)',
+                      style: TextStyle(
+                          color: context.irColors.text,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700)),
+                ],
+              ),
+              const SizedBox(height: 3),
+              Text('$totalRides viajes realizados',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                      color: context.irColors.muted,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600)),
+              const SizedBox(height: 14),
+              Divider(color: context.irColors.border),
               const SizedBox(height: 8),
               ..._items.map((item) => Padding(
                     padding: const EdgeInsets.only(bottom: 6),
@@ -1155,10 +1240,10 @@ class _PassengerSideBar extends StatelessWidget {
                       shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(14)),
                       leading: Icon(item.$3,
-                          color: const Color(0xFFE8F044), size: 24),
+                          color: context.irColors.accent, size: 24),
                       title: Text(item.$2,
-                          style: const TextStyle(
-                              color: Colors.white,
+                          style: TextStyle(
+                              color: context.irColors.text,
                               fontSize: 16,
                               fontWeight: FontWeight.w600)),
                       onTap: () => onSectionSelected(item.$1),
@@ -1172,8 +1257,10 @@ class _PassengerSideBar extends StatelessWidget {
 
 class _RideSheet extends StatelessWidget {
   const _RideSheet(
-      {required this.controller,
-  required this.sheetController,
+      {this.reserveToolbar = false,
+      required this.layout,
+      required this.controller,
+      required this.sheetController,
       required this.destinationController,
       required this.origin,
       required this.vehicle,
@@ -1198,6 +1285,8 @@ class _RideSheet extends StatelessWidget {
       required this.onRateRide,
       required this.onSkipRating});
   final ScrollController controller;
+  final bool reserveToolbar;
+  final IrMapLayout layout;
   final DraggableScrollableController sheetController;
   final TextEditingController destinationController;
   final String origin;
@@ -1225,14 +1314,25 @@ class _RideSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-        decoration: const BoxDecoration(
-            color: Color(0xFF111213),
-            borderRadius: BorderRadius.vertical(top: Radius.circular(30))),
+        decoration: BoxDecoration(
+            color: context.irColors.surface,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(34)),
+            border: Border(
+                top: BorderSide(color: context.irColors.border, width: 1))),
         child: ListView(
             controller: controller,
-            padding: const EdgeInsets.fromLTRB(16, 10, 16, 30),
+            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+            padding: EdgeInsets.fromLTRB(
+                layout.horizontalPadding,
+                reserveToolbar ? 76 : 10,
+                layout.horizontalPadding,
+                24 + MediaQuery.viewPaddingOf(context).bottom),
             children: [
-                _RideSheetHandle(controller: sheetController),
+              _RideSheetHandle(controller: sheetController),
+              if (activeRide != null && message != null) ...[
+                IrInlineMessage(message: message!),
+                const SizedBox(height: 12)
+              ],
               const SizedBox(height: 16),
               if (activeRide != null)
                 _ActiveRidePanel(
@@ -1243,24 +1343,37 @@ class _RideSheet extends StatelessWidget {
                     onRateRide: onRateRide,
                     onSkipRating: onSkipRating)
               else ...[
-                _VehiclePicker(selected: vehicle, onChanged: onVehicleChanged),
+                Padding(
+                  padding: const EdgeInsets.only(left: 2, bottom: 12),
+                  child: Text('Elige cómo viajar',
+                      style: TextStyle(
+                          color: context.irColors.text,
+                          fontSize: 20,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: -.5)),
+                ),
+                _VehiclePicker(
+                    selected: vehicle,
+                    onChanged: onVehicleChanged,
+                    useGrid: layout.showVehicleGrid),
                 const SizedBox(height: 16),
                 _PointsCard(points: points, tier: tier),
                 const SizedBox(height: 14),
                 TextField(
                   controller: destinationController,
-                  style: const TextStyle(
-                      color: Colors.white,
+                  textInputAction: TextInputAction.search,
+                  style: TextStyle(
+                      color: context.irColors.text,
                       fontSize: 17,
                       fontWeight: FontWeight.w600),
                   decoration: InputDecoration(
                       hintText: '¿A dónde y por cuánto?',
-                      hintStyle: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 20,
+                      hintStyle: TextStyle(
+                          color: context.irColors.text,
+                          fontSize: 16,
                           fontWeight: FontWeight.w700),
-                      prefixIcon: const Icon(Icons.search,
-                          color: Colors.white, size: 31),
+                      prefixIcon: Icon(Icons.search,
+                          color: context.irColors.text, size: 31),
                       suffixIcon: destinationController.text.isEmpty
                           ? null
                           : IconButton(
@@ -1269,16 +1382,18 @@ class _RideSheet extends StatelessWidget {
                                 destinationController.clear();
                                 onQueryChanged('');
                               },
-                              icon: const Icon(Icons.close,
-                                  color: Colors.white70)),
+                              icon: Icon(Icons.close,
+                                  color: context.irColors.muted)),
                       filled: true,
-                      fillColor: const Color(0xFF303031),
+                      fillColor: context.irColors.input,
                       border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(18),
                           borderSide: BorderSide.none),
                       contentPadding: const EdgeInsets.symmetric(vertical: 18)),
                   onChanged: onQueryChanged,
-                  onSubmitted: (_) => onRequestRide(),
+                  onSubmitted: (_) {
+                    if (!loading && route != null) onRequestRide();
+                  },
                 ),
                 ...suggestions.take(5).map((place) => _PlaceRow(
                     title: place['description'].toString(),
@@ -1291,13 +1406,14 @@ class _RideSheet extends StatelessWidget {
                   Padding(
                       padding: const EdgeInsets.only(top: 4, left: 10),
                       child: Text(message!,
-                          style: const TextStyle(color: Color(0xFFE8F044)))),
+                          style: TextStyle(color: context.irColors.accent))),
                 if (destinationController.text.isNotEmpty) ...[
                   const SizedBox(height: 10),
                   FilledButton(
-                      onPressed: loading ? null : onRequestRide,
+                      onPressed:
+                          loading || route == null ? null : onRequestRide,
                       style: FilledButton.styleFrom(
-                          backgroundColor: const Color(0xFFE8F044),
+                          backgroundColor: IrPalette.accent,
                           foregroundColor: const Color(0xFF171B1D),
                           minimumSize: const Size.fromHeight(52)),
                       child: loading
@@ -1309,9 +1425,9 @@ class _RideSheet extends StatelessWidget {
               ],
               if (rides.isNotEmpty) ...[
                 const SizedBox(height: 18),
-                const Text('Viajes recientes',
+                Text('Viajes recientes',
                     style: TextStyle(
-                        color: Colors.white,
+                        color: context.irColors.text,
                         fontSize: 17,
                         fontWeight: FontWeight.w700)),
                 ...rides.take(3).map((ride) =>
@@ -1325,18 +1441,27 @@ class _RideSheetHandle extends StatelessWidget {
   const _RideSheetHandle({required this.controller});
   final DraggableScrollableController controller;
 
-  void _snapToNearest() {
+  void _snapToNearest(BuildContext context) {
     if (!controller.isAttached) return;
+    final layout = IrMapLayout.of(context);
     final size = controller.size;
-    final target = size < .335
-        ? .24
-        : size < .665
-            ? .43
+    final collapsedMidpoint =
+        (layout.passengerMinimum + layout.passengerResting) / 2;
+    final expandedMidpoint = (layout.passengerResting + .90) / 2;
+    final target = size < collapsedMidpoint
+        ? layout.passengerMinimum
+        : size < expandedMidpoint
+            ? layout.passengerResting
             : size < .95
                 ? .90
                 : 1.0;
+    if (MediaQuery.disableAnimationsOf(context)) {
+      controller.jumpTo(target);
+      return;
+    }
     controller.animateTo(target,
-        duration: const Duration(milliseconds: 180), curve: Curves.easeOutCubic);
+        duration: IrMotion.duration(context, const Duration(milliseconds: 180)),
+        curve: Curves.easeOutCubic);
   }
 
   @override
@@ -1345,13 +1470,13 @@ class _RideSheetHandle extends StatelessWidget {
         onVerticalDragUpdate: (details) {
           if (!controller.isAttached) return;
           final height = MediaQuery.sizeOf(context).height;
-          final nextSize = (controller.size -
-                  (details.primaryDelta ?? 0) / height)
-              .clamp(.24, 1.0)
-              .toDouble();
+          final nextSize =
+              (controller.size - (details.primaryDelta ?? 0) / height)
+                  .clamp(IrMapLayout.of(context).passengerMinimum, 1.0)
+                  .toDouble();
           controller.jumpTo(nextSize);
         },
-        onVerticalDragEnd: (_) => _snapToNearest(),
+        onVerticalDragEnd: (_) => _snapToNearest(context),
         child: SizedBox(
           height: 28,
           child: Center(
@@ -1359,7 +1484,7 @@ class _RideSheetHandle extends StatelessWidget {
               width: 44,
               height: 5,
               decoration: BoxDecoration(
-                  color: Colors.white38,
+                  color: context.irColors.border,
                   borderRadius: BorderRadius.circular(5)),
             ),
           ),
@@ -1396,7 +1521,6 @@ class _ActiveRidePanelState extends State<_ActiveRidePanel>
     super.initState();
     _searchAnimation = AnimationController(
         vsync: this, duration: const Duration(milliseconds: 6500));
-    _syncSearchAnimation();
   }
 
   @override
@@ -1409,14 +1533,23 @@ class _ActiveRidePanelState extends State<_ActiveRidePanel>
     _syncSearchAnimation();
   }
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _syncSearchAnimation();
+  }
+
   void _syncSearchAnimation() {
     final status = widget.ride['status']?.toString();
     final searching = status == 'searching' ||
         status == 'requested' ||
         status == 'negotiating';
-    if (searching && !_searchAnimation.isAnimating) {
+    if (searching &&
+        !MediaQuery.disableAnimationsOf(context) &&
+        !_searchAnimation.isAnimating) {
       _searchAnimation.repeat();
-    } else if (!searching && _searchAnimation.isAnimating) {
+    } else if ((!searching || MediaQuery.disableAnimationsOf(context)) &&
+        _searchAnimation.isAnimating) {
       _searchAnimation.stop();
     }
   }
@@ -1460,34 +1593,38 @@ class _ActiveRidePanelState extends State<_ActiveRidePanel>
         onSkip: widget.onSkipRating,
       );
     }
-    final searching = status == 'requested' || status == 'negotiating';
+    final searching = status == 'searching' ||
+        status == 'requested' ||
+        status == 'negotiating';
 
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Container(
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 15),
-      decoration: BoxDecoration(
-        color: const Color(0xFF202122),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFF2D2E2F))),
-      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const Icon(Icons.navigation_outlined,
-          color: Color(0xFFE8F044), size: 28),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-          Text(_statusTitle(status),
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 22,
-              fontWeight: FontWeight.w800)),
-          const SizedBox(height: 5),
-          Text(_statusDescription(status),
-            style: const TextStyle(
-              color: Colors.white70, fontSize: 15, height: 1.25)),
-          ])),
-      ]),
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 15),
+        decoration: BoxDecoration(
+            color: context.irColors.raised,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: context.irColors.border)),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Icon(Icons.navigation_outlined,
+              color: context.irColors.accent, size: 28),
+          const SizedBox(width: 12),
+          Expanded(
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                Text(_statusTitle(status),
+                    style: TextStyle(
+                        color: context.irColors.text,
+                        fontSize: 22,
+                        fontWeight: FontWeight.w800)),
+                const SizedBox(height: 5),
+                Text(_statusDescription(status),
+                    style: TextStyle(
+                        color: context.irColors.muted,
+                        fontSize: 15,
+                        height: 1.25)),
+              ])),
+        ]),
       ),
       const SizedBox(height: 16),
       ClipRRect(
@@ -1498,56 +1635,57 @@ class _ActiveRidePanelState extends State<_ActiveRidePanel>
                   builder: (context, child) => LinearProgressIndicator(
                       value: _searchAnimation.value,
                       minHeight: 5,
-                      backgroundColor: const Color(0xFF343638),
-                      color: const Color(0xFFE8F044)))
+                      backgroundColor: context.irColors.border,
+                      color: context.irColors.accent))
               : LinearProgressIndicator(
                   value: _statusProgress(status),
                   minHeight: 5,
-                  backgroundColor: const Color(0xFF343638),
-                  color: const Color(0xFFE8F044))),
+                  backgroundColor: context.irColors.border,
+                  color: context.irColors.accent)),
       const SizedBox(height: 16),
-          if (ride['pickup_code']?.toString().trim().isNotEmpty == true) ...[
-            _PickupCodeCard(code: ride['pickup_code'].toString()),
-            const SizedBox(height: 12),
-          ],
+      if (ride['pickup_code']?.toString().trim().isNotEmpty == true) ...[
+        _PickupCodeCard(code: ride['pickup_code'].toString()),
+        const SizedBox(height: 12),
+      ],
       Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-            color: const Color(0xFF202122),
+            color: context.irColors.raised,
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: const Color(0xFF2D2E2F))),
+            border: Border.all(color: context.irColors.border)),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text(_vehicleLabel(ride['vehicle_type']?.toString()),
-              style: const TextStyle(color: Colors.white70, fontSize: 13)),
+              style: TextStyle(color: context.irColors.muted, fontSize: 13)),
           const SizedBox(height: 6),
           Text(_rideMessage(status, ride),
               maxLines: 3,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                  color: Colors.white,
+              style: TextStyle(
+                  color: context.irColors.text,
                   fontSize: 20,
                   height: 1.15,
                   fontWeight: FontWeight.w800)),
           const SizedBox(height: 14),
           Row(children: [
-            const Icon(Icons.my_location, color: Color(0xFFE8F044), size: 20),
+            Icon(Icons.my_location, color: context.irColors.accent, size: 20),
             const SizedBox(width: 9),
             Expanded(
                 child: Text(_displayOrigin(ride['origin']?.toString()),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: Colors.white70))),
+                    style: TextStyle(color: context.irColors.muted))),
           ]),
           const SizedBox(height: 8),
           Row(children: [
-            const Icon(Icons.location_on, color: Color(0xFFE8F044), size: 20),
+            Icon(Icons.location_on, color: context.irColors.accent, size: 20),
             const SizedBox(width: 9),
             Expanded(
                 child: Text(ride['destination']?.toString() ?? 'Destino',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                        color: Colors.white, fontWeight: FontWeight.w600))),
+                    style: TextStyle(
+                        color: context.irColors.text,
+                        fontWeight: FontWeight.w600))),
           ]),
           if (ride['driver_lat'] != null && ride['driver_lng'] != null) ...[
             const SizedBox(height: 12),
@@ -1557,14 +1695,15 @@ class _ActiveRidePanelState extends State<_ActiveRidePanel>
             ),
           ],
           const SizedBox(height: 14),
-          Row(children: [
+          Wrap(spacing: 12, runSpacing: 6, children: [
             Text(
                 'COP ${ride['final_fare'] == 0 ? ride['offer_amount'] : ride['final_fare']}',
-                style: const TextStyle(
-                    color: Color(0xFFE8F044), fontWeight: FontWeight.w800)),
+                style: TextStyle(
+                    color: context.irColors.accent,
+                    fontWeight: FontWeight.w800)),
             const SizedBox(width: 12),
             Text('${ride['distance_km']} km · ${ride['duration_minutes']} min',
-                style: const TextStyle(color: Colors.white54)),
+                style: TextStyle(color: context.irColors.muted)),
           ]),
         ]),
       ),
@@ -1574,9 +1713,9 @@ class _ActiveRidePanelState extends State<_ActiveRidePanel>
       ],
       if (offers.isNotEmpty) ...[
         const SizedBox(height: 18),
-        const Text('Ofertas de conductores',
+        Text('Ofertas de conductores',
             style: TextStyle(
-                color: Colors.white,
+                color: context.irColors.text,
                 fontSize: 17,
                 fontWeight: FontWeight.w700)),
         const SizedBox(height: 8),
@@ -1607,9 +1746,10 @@ class _ActiveRidePanelState extends State<_ActiveRidePanel>
     final reason = await showModalBottomSheet<String>(
         context: context,
         isScrollControlled: true,
-        backgroundColor: const Color(0xFF171819),
+        backgroundColor: context.irColors.surface,
         shape: const RoundedRectangleBorder(
             borderRadius: BorderRadius.vertical(top: Radius.circular(28))),
+        useSafeArea: true,
         builder: (_) => const _CancelRideSheet());
     if (reason != null && context.mounted) {
       widget.onCancelRide(rideId, reason);
@@ -1638,27 +1778,29 @@ class _CancelRideSheetState extends State<_CancelRideSheet> {
 
   @override
   Widget build(BuildContext context) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(22, 18, 22, 20),
+        child: SingleChildScrollView(
+          padding: EdgeInsets.fromLTRB(
+              22, 18, 22, 20 + MediaQuery.viewInsetsOf(context).bottom),
           child: Column(mainAxisSize: MainAxisSize.min, children: [
             Container(
                 width: 42,
                 height: 5,
                 decoration: BoxDecoration(
-                    color: Colors.white38,
+                    color: context.irColors.border,
                     borderRadius: BorderRadius.circular(4))),
             const SizedBox(height: 20),
-            const Text('¿Quieres cancelar el viaje?',
+            Text('¿Quieres cancelar el viaje?',
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                    color: Colors.white,
+                    color: context.irColors.text,
                     fontSize: 24,
                     fontWeight: FontWeight.w800)),
             const SizedBox(height: 8),
-            const Align(
+            Align(
                 alignment: Alignment.centerLeft,
                 child: Text('¿Por qué quieres cancelar? Opcional',
-                    style: TextStyle(color: Colors.white70, fontSize: 15))),
+                    style: TextStyle(
+                        color: context.irColors.muted, fontSize: 15))),
             const SizedBox(height: 10),
             RadioGroup<String>(
               groupValue: _reason,
@@ -1667,10 +1809,10 @@ class _CancelRideSheetState extends State<_CancelRideSheet> {
                 children: _reasons
                     .map((reason) => RadioListTile<String>(
                           value: reason,
-                          activeColor: const Color(0xFFE8F044),
+                          activeColor: context.irColors.accent,
                           contentPadding: EdgeInsets.zero,
                           title: Text(reason,
-                              style: const TextStyle(color: Colors.white)),
+                              style: TextStyle(color: context.irColors.text)),
                         ))
                     .toList(),
               ),
@@ -1689,8 +1831,8 @@ class _CancelRideSheetState extends State<_CancelRideSheet> {
             const SizedBox(height: 8),
             TextButton(
               onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Conservar mi viaje',
-                  style: TextStyle(color: Colors.white70)),
+              child: Text('Conservar mi viaje',
+                  style: TextStyle(color: context.irColors.muted)),
             ),
           ]),
         ),
@@ -1713,12 +1855,12 @@ class _OfferTile extends StatelessWidget {
         margin: const EdgeInsets.only(bottom: 8),
         padding: const EdgeInsets.fromLTRB(12, 12, 8, 12),
         decoration: BoxDecoration(
-            color: const Color(0xFF191A1B),
+            color: context.irColors.raised,
             borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: const Color(0xFF343638))),
+            border: Border.all(color: context.irColors.border)),
         child: Row(children: [
-          const CircleAvatar(
-              backgroundColor: Color(0xFFE8F044),
+          CircleAvatar(
+              backgroundColor: IrPalette.accent,
               foregroundColor: Color(0xFF171B1D),
               child: Icon(Icons.person, size: 20)),
           const SizedBox(width: 10),
@@ -1727,22 +1869,24 @@ class _OfferTile extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                 Text(offer['driver_name']?.toString() ?? 'Conductor IR',
-                    style: const TextStyle(
-                        color: Colors.white, fontWeight: FontWeight.w700)),
+                    style: TextStyle(
+                        color: context.irColors.text,
+                        fontWeight: FontWeight.w700)),
                 Text('${offer['amount']} COP · ${offer['status']}',
                     style:
-                        const TextStyle(color: Colors.white60, fontSize: 12)),
+                        TextStyle(color: context.irColors.muted, fontSize: 12)),
               ])),
           if (enabled)
             Column(children: [
               TextButton(
                   onPressed: onSelect,
                   style: TextButton.styleFrom(
-                      foregroundColor: const Color(0xFFE8F044)),
+                      foregroundColor: context.irColors.accent),
                   child: const Text('Aceptar')),
               TextButton(
                   onPressed: onReject,
-                  style: TextButton.styleFrom(foregroundColor: Colors.white60),
+                  style: TextButton.styleFrom(
+                      foregroundColor: context.irColors.muted),
                   child: const Text('Rechazar')),
             ]),
         ]),
@@ -1761,11 +1905,12 @@ class _LiveDistanceRow extends StatelessWidget {
         ? distanceKm.toDouble().toStringAsFixed(2)
         : 'calculando';
     return Row(children: [
-      const Icon(Icons.near_me_outlined, color: Color(0xFFE8F044), size: 20),
+      Icon(Icons.near_me_outlined, color: context.irColors.accent, size: 20),
       const SizedBox(width: 9),
-      Text('$label: $distance km',
-          style: const TextStyle(
-              color: Colors.white, fontWeight: FontWeight.w700)),
+      Expanded(
+          child: Text('$label: $distance km',
+              style: TextStyle(
+                  color: context.irColors.text, fontWeight: FontWeight.w700))),
     ]);
   }
 }
@@ -1778,8 +1923,7 @@ class _PickupCodeCard extends StatelessWidget {
   Widget build(BuildContext context) => Container(
         padding: const EdgeInsets.fromLTRB(16, 12, 10, 12),
         decoration: BoxDecoration(
-            color: const Color(0xFFE8F044),
-            borderRadius: BorderRadius.circular(16)),
+            color: IrPalette.accent, borderRadius: BorderRadius.circular(16)),
         child: Row(children: [
           const Icon(Icons.qr_code_2, color: Color(0xFF171B1D), size: 28),
           const SizedBox(width: 10),
@@ -1799,7 +1943,7 @@ class _PickupCodeCard extends StatelessWidget {
               icon: const Icon(Icons.copy, color: Color(0xFF171B1D))),
         ]),
       );
-          }
+}
 
 class _RideCompletionPanel extends StatelessWidget {
   const _RideCompletionPanel({required this.ride, required this.onContinue});
@@ -1811,13 +1955,13 @@ class _RideCompletionPanel extends StatelessWidget {
   Widget build(BuildContext context) => Container(
         padding: const EdgeInsets.fromLTRB(18, 20, 18, 22),
         decoration: BoxDecoration(
-            color: const Color(0xFF202122),
+            color: context.irColors.raised,
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: const Color(0xFF343638))),
+            border: Border.all(color: context.irColors.border)),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          const Text('Resumen de tu viaje',
+          Text('Resumen de tu viaje',
               style: TextStyle(
-                  color: Colors.white,
+                  color: context.irColors.text,
                   fontSize: 21,
                   fontWeight: FontWeight.w800)),
           const SizedBox(height: 16),
@@ -1848,7 +1992,7 @@ class _RideCompletionPanel extends StatelessWidget {
               child: FilledButton(
                   onPressed: onContinue,
                   style: FilledButton.styleFrom(
-                      backgroundColor: const Color(0xFFE8F044),
+                      backgroundColor: IrPalette.accent,
                       foregroundColor: const Color(0xFF171B1D),
                       minimumSize: const Size.fromHeight(48)),
                   child: const Text('Continuar'))),
@@ -1866,12 +2010,12 @@ class _SummaryRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Row(children: [
-        Icon(icon, color: const Color(0xFFE8F044), size: 20),
+        Icon(icon, color: context.irColors.accent, size: 20),
         const SizedBox(width: 9),
         Expanded(
             child: RichText(
                 text: TextSpan(
-                    style: const TextStyle(color: Colors.white70),
+                    style: TextStyle(color: context.irColors.muted),
                     children: [
               TextSpan(
                   text: '$label: ',
@@ -1913,29 +2057,29 @@ class _RatingPanelState extends State<_RatingPanel> {
   Widget build(BuildContext context) => Container(
         padding: const EdgeInsets.fromLTRB(18, 20, 18, 22),
         decoration: BoxDecoration(
-            color: const Color(0xFF202122),
+            color: context.irColors.raised,
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: const Color(0xFF343638))),
+            border: Border.all(color: context.irColors.border)),
         child: Column(children: [
           Text(widget.title,
-              style: const TextStyle(
-                  color: Colors.white,
+              style: TextStyle(
+                  color: context.irColors.text,
                   fontSize: 21,
                   fontWeight: FontWeight.w800)),
           const SizedBox(height: 16),
-          const CircleAvatar(
+          CircleAvatar(
               radius: 34,
-              backgroundColor: Color(0xFFE8F044),
+              backgroundColor: IrPalette.accent,
               child: Icon(Icons.person, color: Color(0xFF171B1D), size: 34)),
           const SizedBox(height: 10),
           Text(widget.personName,
-              style: const TextStyle(
-                  color: Colors.white,
+              style: TextStyle(
+                  color: context.irColors.text,
                   fontSize: 17,
                   fontWeight: FontWeight.w700)),
           const SizedBox(height: 12),
-          Row(
-              mainAxisAlignment: MainAxisAlignment.center,
+          Wrap(
+              alignment: WrapAlignment.center,
               children: List.generate(
                   5,
                   (index) => IconButton(
@@ -1945,8 +2089,8 @@ class _RatingPanelState extends State<_RatingPanel> {
                         icon: Icon(
                             index < _rating ? Icons.star : Icons.star_border,
                             color: index < _rating
-                                ? const Color(0xFFE8F044)
-                                : Colors.white54,
+                                ? context.irColors.accent
+                                : context.irColors.muted,
                             size: 34),
                         tooltip: '${index + 1} estrellas',
                       ))),
@@ -1958,7 +2102,7 @@ class _RatingPanelState extends State<_RatingPanel> {
                   ? () => widget.onRate(widget.rideId!, _rating)
                   : null,
               style: FilledButton.styleFrom(
-                  backgroundColor: const Color(0xFFE8F044),
+                  backgroundColor: IrPalette.accent,
                   foregroundColor: const Color(0xFF171B1D),
                   minimumSize: const Size.fromHeight(48)),
               child: Text(widget.existingRating == null
@@ -1987,59 +2131,59 @@ class _DriverInfoPanel extends StatelessWidget {
     final vehicleType = _value(ride['driver_vehicle_type']);
     final isMoto = vehicleType.toLowerCase().contains('moto');
     return Container(
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-            color: const Color(0xFF191A1B),
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: const Color(0xFF343638))),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          const Text('Tu conductor',
-              style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 17,
-                  fontWeight: FontWeight.w800)),
-          const SizedBox(height: 8),
-                Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                const CircleAvatar(
-                  radius: 25,
-                  backgroundColor: Color(0xFFE8F044),
-                  child: Icon(Icons.person, color: Color(0xFF171B1D), size: 28)),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                    Text(_value(ride['driver_name']),
-                      style: const TextStyle(
-                        color: Colors.white,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+          color: context.irColors.raised,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: context.irColors.border)),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text('Tu conductor',
+            style: TextStyle(
+                color: context.irColors.text,
+                fontSize: 17,
+                fontWeight: FontWeight.w800)),
+        const SizedBox(height: 8),
+        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          CircleAvatar(
+              radius: 25,
+              backgroundColor: IrPalette.accent,
+              child: Icon(Icons.person, color: Color(0xFF171B1D), size: 28)),
+          const SizedBox(width: 12),
+          Expanded(
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                Text(_value(ride['driver_name']),
+                    style: TextStyle(
+                        color: context.irColors.text,
                         fontSize: 17,
                         fontWeight: FontWeight.w800)),
-                    const SizedBox(height: 4),
-                    Text(isMoto ? 'Moto' : 'Carro',
-                      style: const TextStyle(color: Colors.white70)),
-                  ])),
-                Container(
-                  width: 76,
-                  height: 58,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF202122),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: const Color(0xFF343638))),
-                  child: Icon(isMoto ? Icons.two_wheeler : Icons.directions_car,
-                    color: const Color(0xFFE8F044), size: 38)),
-                ]),
-                const SizedBox(height: 12),
-                Text('Tipo: $vehicleType'),
-          Text('Marca: ${_value(ride['driver_vehicle_brand'])}'),
-          Text('Color: ${_value(ride['driver_vehicle_color'])}'),
-          Text('Placa: ${_value(ride['driver_vehicle_plate'])}'),
-          const SizedBox(height: 12),
-          Text('Código de encuentro: ${_value(ride['pickup_code'])}',
-              style: const TextStyle(
-                  color: Color(0xFFE8F044), fontWeight: FontWeight.w800)),
+                const SizedBox(height: 4),
+                Text(isMoto ? 'Moto' : 'Carro',
+                    style: TextStyle(color: context.irColors.muted)),
+              ])),
+          Container(
+              width: 76,
+              height: 58,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                  color: context.irColors.raised,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: context.irColors.border)),
+              child: Icon(isMoto ? Icons.two_wheeler : Icons.directions_car,
+                  color: context.irColors.accent, size: 38)),
         ]),
-      );
+        const SizedBox(height: 12),
+        Text('Tipo: $vehicleType'),
+        Text('Marca: ${_value(ride['driver_vehicle_brand'])}'),
+        Text('Color: ${_value(ride['driver_vehicle_color'])}'),
+        Text('Placa: ${_value(ride['driver_vehicle_plate'])}'),
+        const SizedBox(height: 12),
+        Text('Código de encuentro: ${_value(ride['pickup_code'])}',
+            style: TextStyle(
+                color: context.irColors.accent, fontWeight: FontWeight.w800)),
+      ]),
+    );
   }
 }
 
@@ -2115,9 +2259,11 @@ String _rideMessage(String status, Map<String, dynamic> ride) {
 }
 
 class _VehiclePicker extends StatelessWidget {
-  const _VehiclePicker({required this.selected, required this.onChanged});
+  const _VehiclePicker(
+      {required this.selected, required this.onChanged, required this.useGrid});
   final String selected;
   final ValueChanged<String> onChanged;
+  final bool useGrid;
   static const options = [
     ('economy', 'Viaje', Icons.directions_car),
     ('moto', 'Moto', Icons.two_wheeler),
@@ -2126,47 +2272,77 @@ class _VehiclePicker extends StatelessWidget {
   ];
 
   @override
-  Widget build(BuildContext context) => SizedBox(
-        height: 88,
-        child: ListView.separated(
-          scrollDirection: Axis.horizontal,
-          itemCount: options.length,
-          separatorBuilder: (_, __) => const SizedBox(width: 8),
-          itemBuilder: (_, index) {
-            final option = options[index];
-            final active = option.$1 == selected;
-            return GestureDetector(
-              onTap: () => onChanged(option.$1),
-              child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 180),
-                  width: 96,
-                  padding: const EdgeInsets.fromLTRB(8, 9, 8, 8),
-                  decoration: BoxDecoration(
-                      color: active
-                          ? const Color(0xFFE8F044)
-                          : const Color(0xFF191A1B),
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(
-                          color: active
-                              ? const Color(0xFFE8F044)
-                              : const Color(0xFF3A3B3C))),
-                  child: Column(children: [
-                    Icon(option.$3,
-                        color:
-                            active ? const Color(0xFF171B1D) : Colors.white70,
-                        size: 34),
-                    const SizedBox(height: 4),
-                    Text(option.$2,
-                        style: TextStyle(
-                            color: active
-                                ? const Color(0xFF171B1D)
-                                : Colors.white70,
-                            fontWeight: FontWeight.w700))
-                  ])),
-            );
-          },
-        ),
+  Widget build(BuildContext context) {
+    final height = 86 + MediaQuery.textScalerOf(context).scale(16) * 1.5;
+    if (useGrid) {
+      return SizedBox(
+        height: height,
+        child: Row(children: [
+          for (var index = 0; index < options.length; index++) ...[
+            if (index > 0) const SizedBox(width: 10),
+            Expanded(child: _option(context, options[index], null)),
+          ],
+        ]),
       );
+    }
+    return SizedBox(
+      height: height,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: options.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 8),
+        itemBuilder: (_, index) {
+          final active = options[index].$1 == selected;
+          final width = MediaQuery.textScalerOf(context).scale(16) > 22
+              ? (active ? 144.0 : 120.0)
+              : (active ? 116.0 : 88.0);
+          return _option(context, options[index], width);
+        },
+      ),
+    );
+  }
+
+  Widget _option(
+      BuildContext context, (String, String, IconData) option, double? width) {
+    final active = option.$1 == selected;
+    return Semantics(
+      selected: active,
+      button: true,
+      label: option.$2,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(20),
+        onTap: () => onChanged(option.$1),
+        child: AnimatedContainer(
+          duration:
+              IrMotion.duration(context, const Duration(milliseconds: 180)),
+          width: width,
+          padding: const EdgeInsets.fromLTRB(8, 11, 8, 9),
+          decoration: BoxDecoration(
+            color: active ? IrPalette.accent : context.irColors.raised,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+                color:
+                    active ? context.irColors.accent : context.irColors.border),
+          ),
+          child: Column(children: [
+            Icon(option.$3,
+                color:
+                    active ? const Color(0xFF171B1D) : context.irColors.muted,
+                size: 34),
+            const SizedBox(height: 4),
+            Text(option.$2,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                    color: active
+                        ? const Color(0xFF171B1D)
+                        : context.irColors.muted,
+                    fontWeight: FontWeight.w700)),
+          ]),
+        ),
+      ),
+    );
+  }
 }
 
 class _PlaceRow extends StatelessWidget {
@@ -2179,16 +2355,16 @@ class _PlaceRow extends StatelessWidget {
       child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 7),
           child: Row(children: [
-            const Icon(Icons.location_on_outlined,
-                color: Colors.white70, size: 29),
+            Icon(Icons.location_on_outlined,
+                color: context.irColors.muted, size: 29),
             const SizedBox(width: 17),
             Expanded(
                 child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                   Text(title,
-                      style: const TextStyle(
-                          color: Colors.white,
+                      style: TextStyle(
+                          color: context.irColors.text,
                           fontSize: 16,
                           fontWeight: FontWeight.w600)),
                 ]))
@@ -2209,12 +2385,13 @@ class _OriginRow extends StatelessWidget {
   Widget build(BuildContext context) => Padding(
       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 9),
       child: Row(children: [
-        const Icon(Icons.my_location_outlined, color: Colors.white70, size: 29),
+        Icon(Icons.my_location_outlined,
+            color: context.irColors.muted, size: 29),
         const SizedBox(width: 17),
         Expanded(
             child: Text(origin,
-                style: const TextStyle(
-                    color: Colors.white70,
+                style: TextStyle(
+                    color: context.irColors.muted,
                     fontSize: 16,
                     fontWeight: FontWeight.w600),
                 overflow: TextOverflow.ellipsis))
@@ -2230,24 +2407,32 @@ class _PointsCard extends StatelessWidget {
   Widget build(BuildContext context) => Container(
         padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 11),
         decoration: BoxDecoration(
-            color: const Color(0xFF191A1B),
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: const Color(0xFF2B2C2D))),
+            color: context.irColors.raised,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: context.irColors.border)),
         child: Row(children: [
-          const Icon(Icons.stars, color: Color(0xFFE8F044), size: 28),
+          Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                  color: IrPalette.accent,
+                  borderRadius: BorderRadius.circular(13)),
+              child: const Icon(Icons.stars, color: IrPalette.ink, size: 23)),
           const SizedBox(width: 10),
           Expanded(
               child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                const Text('ProMaster pasajero',
-                    style: TextStyle(color: Colors.white70, fontSize: 12)),
+                Text('ProMaster pasajero',
+                    style:
+                        TextStyle(color: context.irColors.muted, fontSize: 12)),
                 Text('$points PI · Nivel $tier',
-                    style: const TextStyle(
-                        color: Colors.white, fontWeight: FontWeight.w800)),
+                    style: TextStyle(
+                        color: context.irColors.text,
+                        fontWeight: FontWeight.w800)),
               ])),
-          const Text('COP 20 = 1 PI',
-              style: TextStyle(color: Colors.white54, fontSize: 10)),
+          Text('COP 20 = 1 PI',
+              style: TextStyle(color: context.irColors.muted, fontSize: 10)),
         ]),
       );
 }
@@ -2267,37 +2452,38 @@ class _RecentRide extends StatelessWidget {
       margin: const EdgeInsets.only(top: 8),
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-          color: const Color(0xFF202122),
+          color: context.irColors.raised,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: const Color(0xFF2D2E2F))),
+          border: Border.all(color: context.irColors.border)),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
-          const Icon(Icons.route, color: Color(0xFFE8F044)),
+          Icon(Icons.route, color: context.irColors.accent),
           const SizedBox(width: 8),
           Expanded(
               child: Text(
                   '${_displayOrigin(ride['origin']?.toString())} → ${ride['destination']}',
-                  style: const TextStyle(
-                      color: Colors.white, fontWeight: FontWeight.w700))),
-          Text('\$${ride['offer_amount']}',
-              style: const TextStyle(
-                  color: Color(0xFFE8F044), fontWeight: FontWeight.w800)),
+                  style: TextStyle(
+                      color: context.irColors.text,
+                      fontWeight: FontWeight.w700))),
+          Text(irMoney(ride['offer_amount']),
+              style: TextStyle(
+                  color: context.irColors.accent, fontWeight: FontWeight.w800)),
         ]),
         const SizedBox(height: 4),
         Text(
-            'Estado: ${ride['status']} · ${ride['distance_km']} km · ${ride['duration_minutes']} min',
-            style: const TextStyle(color: Colors.white54, fontSize: 12)),
+            'Estado: ${irRideStatus(ride['status']?.toString())} · ${ride['distance_km']} km · ${ride['duration_minutes']} min',
+            style: TextStyle(color: context.irColors.muted, fontSize: 12)),
         if (offers.isNotEmpty) ...[
           const SizedBox(height: 8),
-          const Text('Ofertas privadas',
-              style:
-                  TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+          Text('Ofertas privadas',
+              style: TextStyle(
+                  color: context.irColors.text, fontWeight: FontWeight.w700)),
           ...offers.map((offer) => Row(children: [
                 Expanded(
                     child: Text(
                         '${offer['driver_name']} · ${offer['amount']} COP',
-                        style: const TextStyle(
-                            color: Colors.white70, fontSize: 12))),
+                        style: TextStyle(
+                            color: context.irColors.muted, fontSize: 12))),
                 if (canSelect && offer['status'] == 'pending')
                   TextButton(
                       onPressed: () =>
@@ -2319,20 +2505,21 @@ class _RouteSummary extends StatelessWidget {
         margin: const EdgeInsets.only(top: 10),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         decoration: BoxDecoration(
-            color: const Color(0xFF202122),
+            color: context.irColors.raised,
             borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: const Color(0xFF2D2E2F))),
+            border: Border.all(color: context.irColors.border)),
         child: Row(children: [
-          const Icon(Icons.route, color: Color(0xFFE8F044)),
+          Icon(Icons.route, color: context.irColors.accent),
           const SizedBox(width: 10),
           Expanded(
               child: Text(
                   '${route['distance_text'] ?? '${route['distance_km']} km'}  ·  ${route['duration_text'] ?? '${route['duration_minutes']} min'}',
-                  style: const TextStyle(
-                      color: Colors.white, fontWeight: FontWeight.w700))),
-          Text('\$${fare.toString()} COP',
-              style: const TextStyle(
-                  color: Color(0xFFE8F044), fontWeight: FontWeight.w800)),
+                  style: TextStyle(
+                      color: context.irColors.text,
+                      fontWeight: FontWeight.w700))),
+          Text(irMoney(fare),
+              style: TextStyle(
+                  color: context.irColors.accent, fontWeight: FontWeight.w800)),
         ]),
       );
 }
@@ -2350,30 +2537,31 @@ class _NavigationCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
+        duration: IrMotion.duration(context, const Duration(milliseconds: 180)),
         curve: Curves.easeOutCubic,
         padding:
             EdgeInsets.symmetric(horizontal: 16, vertical: condensed ? 7 : 12),
         decoration: BoxDecoration(
-            color: const Color(0xFF111213).withValues(alpha: .97),
+            color: context.irColors.surface.withValues(alpha: .97),
             borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: const Color(0xFF2D2E2F))),
+            border: Border.all(color: context.irColors.border)),
         child: Row(children: [
           Icon(_maneuverIcon(nextStep?['maneuver']?.toString()),
-              color: const Color(0xFFE8F044), size: condensed ? 20 : 24),
+              color: context.irColors.accent, size: condensed ? 20 : 24),
           SizedBox(width: condensed ? 8 : 12),
           Expanded(
               child: Text(destination,
                   maxLines: condensed ? 1 : 2,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                      color: Colors.white,
+                      color: context.irColors.text,
                       fontSize: condensed ? 14 : 15,
                       fontWeight: FontWeight.w800))),
           if (route != null)
             Text(route!['duration_text']?.toString() ?? '',
-                style: const TextStyle(
-                    color: Color(0xFFE8F044), fontWeight: FontWeight.w800)),
+                style: TextStyle(
+                    color: context.irColors.accent,
+                    fontWeight: FontWeight.w800)),
         ]),
       );
 }
@@ -2384,24 +2572,4 @@ IconData _maneuverIcon(String? maneuver) {
   if (maneuver?.contains('uturn') == true) return Icons.u_turn_left;
   if (maneuver?.contains('roundabout') == true) return Icons.roundabout_left;
   return Icons.navigation;
-}
-
-class _RoundAction extends StatelessWidget {
-  const _RoundAction({required this.icon, required this.onPressed});
-  final IconData icon;
-  final VoidCallback onPressed;
-  @override
-  Widget build(BuildContext context) => Material(
-      color: const Color(0xFF111213),
-      shape: const CircleBorder(),
-      child: InkWell(
-          onTap: onPressed,
-          customBorder: const CircleBorder(),
-          child: Container(
-              width: 58,
-              height: 58,
-              decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  border: Border.all(color: const Color(0xFF343638))),
-              child: Icon(icon, color: Colors.white, size: 29))));
 }

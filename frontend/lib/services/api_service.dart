@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
@@ -20,7 +21,7 @@ class ApiService {
   }
 
   Future<Map<String, dynamic>> login(String username, String password) async {
-    final response = await http.post(
+    final response = await _post(
       Uri.parse('$baseUrl/auth/login/'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({'username': username, 'password': password}),
@@ -45,7 +46,7 @@ class ApiService {
     String vehicleType = '',
     String vehiclePlate = '',
   }) async {
-    final response = await http.post(
+    final response = await _post(
       Uri.parse('$baseUrl/auth/register/'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({
@@ -62,7 +63,7 @@ class ApiService {
     final data = _decode(response);
     if (response.statusCode != 201) {
       throw ApiException(
-          data['detail']?.toString() ?? 'No fue posible crear la cuenta.');
+          _errorMessage(data, 'No fue posible crear la cuenta.'));
     }
     token = data['token'] as String;
     return data['user'] as Map<String, dynamic>;
@@ -70,7 +71,7 @@ class ApiService {
 
   Future<List<Map<String, dynamic>>> getRides() async {
     final response =
-        await http.get(Uri.parse('$baseUrl/rides/'), headers: _headers);
+        await _get(Uri.parse('$baseUrl/rides/'), headers: _headers);
     final data = _decode(response);
     if (response.statusCode != 200) {
       throw ApiException(
@@ -84,7 +85,7 @@ class ApiService {
     required double latitude,
     required double longitude,
   }) async {
-    final response = await http.post(
+    final response = await _post(
       Uri.parse('$baseUrl/rides/$rideId/location/'),
       headers: {..._headers, 'Content-Type': 'application/json'},
       body: jsonEncode({'latitude': latitude, 'longitude': longitude}),
@@ -99,7 +100,7 @@ class ApiService {
 
   Future<Map<String, dynamic>> getPassengerMe() async {
     final response =
-        await http.get(Uri.parse('$baseUrl/passenger/me/'), headers: _headers);
+        await _get(Uri.parse('$baseUrl/passenger/me/'), headers: _headers);
     final data = _decode(response);
     if (response.statusCode != 200) {
       throw ApiException(
@@ -109,7 +110,7 @@ class ApiService {
   }
 
   Future<List<Map<String, dynamic>>> searchPlaces(String query) async {
-    final response = await http.get(
+    final response = await _get(
       Uri.parse('$baseUrl/places/search/')
           .replace(queryParameters: {'input': query}),
       headers: _headers,
@@ -125,7 +126,7 @@ class ApiService {
   Future<Map<String, dynamic>> placeDetails(String placeId) async {
     final uri = Uri.parse('$baseUrl/places/details/')
         .replace(queryParameters: {'place_id': placeId});
-    final response = await http.get(uri, headers: _headers);
+    final response = await _get(uri, headers: _headers);
     final data = _decode(response);
     if (response.statusCode != 200) {
       throw ApiException(
@@ -146,7 +147,7 @@ class ApiService {
       'destination_lat': '$destinationLat',
       'destination_lng': '$destinationLng'
     });
-    final response = await http.get(uri, headers: _headers);
+    final response = await _get(uri, headers: _headers);
     final data = _decode(response);
     if (response.statusCode != 200) {
       throw ApiException(
@@ -159,7 +160,7 @@ class ApiService {
       double latitude, double longitude) async {
     final uri = Uri.parse('$baseUrl/places/nearby/')
         .replace(queryParameters: {'lat': '$latitude', 'lng': '$longitude'});
-    final response = await http.get(uri, headers: _headers);
+    final response = await _get(uri, headers: _headers);
     final data = _decode(response);
     if (response.statusCode != 200) {
       throw ApiException(data['detail']?.toString() ??
@@ -181,7 +182,7 @@ class ApiService {
     required double distanceKm,
     required int durationMinutes,
   }) async {
-    final response = await http.post(
+    final response = await _post(
       Uri.parse('$baseUrl/rides/'),
       headers: {..._headers, 'Content-Type': 'application/json'},
       body: jsonEncode({
@@ -208,7 +209,7 @@ class ApiService {
 
   Future<Map<String, dynamic>> getDriverMe() async {
     final response =
-        await http.get(Uri.parse('$baseUrl/driver/me/'), headers: _headers);
+        await _get(Uri.parse('$baseUrl/driver/me/'), headers: _headers);
     final data = _decode(response);
     if (response.statusCode != 200) {
       throw ApiException(
@@ -218,7 +219,7 @@ class ApiService {
   }
 
   Future<void> updateDriverStatus(String status) async {
-    final response = await http.patch(
+    final response = await _patch(
       Uri.parse('$baseUrl/driver/me/'),
       headers: {..._headers, 'Content-Type': 'application/json'},
       body: jsonEncode({'status': status}),
@@ -229,8 +230,8 @@ class ApiService {
   }
 
   Future<List<Map<String, dynamic>>> getDriverAvailableRides() async {
-    final response = await http
-        .get(Uri.parse('$baseUrl/driver/rides/available/'), headers: _headers);
+    final response = await _get(Uri.parse('$baseUrl/driver/rides/available/'),
+        headers: _headers);
     final data = _decode(response);
     if (response.statusCode != 200) {
       throw ApiException('Error al buscar viajes disponibles.');
@@ -239,8 +240,8 @@ class ApiService {
   }
 
   Future<List<Map<String, dynamic>>> getDriverRides() async {
-    final response = await http.get(Uri.parse('$baseUrl/driver/rides/mine/'),
-        headers: _headers);
+    final response =
+        await _get(Uri.parse('$baseUrl/driver/rides/mine/'), headers: _headers);
     final data = _decode(response);
     if (response.statusCode != 200) {
       throw ApiException(data is Map
@@ -251,7 +252,7 @@ class ApiService {
   }
 
   Future<Map<String, dynamic>> driverRideOffer(int rideId, int amount) async {
-    final response = await http.post(
+    final response = await _post(
       Uri.parse('$baseUrl/driver/rides/$rideId/offers/'),
       headers: {..._headers, 'Content-Type': 'application/json'},
       body: jsonEncode({'amount': amount}),
@@ -264,7 +265,7 @@ class ApiService {
   }
 
   Future<Map<String, dynamic>> driverAcceptRide(int rideId) async {
-    final response = await http.post(
+    final response = await _post(
       Uri.parse('$baseUrl/driver/rides/$rideId/accept/'),
       headers: _headers,
     );
@@ -277,7 +278,7 @@ class ApiService {
   }
 
   Future<Map<String, dynamic>> selectRideOffer(int rideId, int offerId) async {
-    final response = await http.post(
+    final response = await _post(
       Uri.parse('$baseUrl/rides/$rideId/offers/$offerId/select/'),
       headers: _headers,
     );
@@ -290,7 +291,7 @@ class ApiService {
   }
 
   Future<Map<String, dynamic>> rejectRideOffer(int rideId, int offerId) async {
-    final response = await http.post(
+    final response = await _post(
       Uri.parse('$baseUrl/rides/$rideId/offers/$offerId/reject/'),
       headers: _headers,
     );
@@ -303,7 +304,7 @@ class ApiService {
   }
 
   Future<void> driverRejectRide(int rideId) async {
-    final response = await http.post(
+    final response = await _post(
         Uri.parse('$baseUrl/driver/rides/$rideId/reject/'),
         headers: _headers);
     final data = _decode(response);
@@ -315,7 +316,7 @@ class ApiService {
 
   Future<Map<String, dynamic>> cancelRide(int rideId,
       {String reason = ''}) async {
-    final response = await http.post(
+    final response = await _post(
       Uri.parse('$baseUrl/rides/$rideId/cancel/'),
       headers: {..._headers, 'Content-Type': 'application/json'},
       body: jsonEncode({'reason': reason}),
@@ -329,7 +330,7 @@ class ApiService {
   }
 
   Future<void> driverUpdateRideStatus(int rideId, String status) async {
-    final response = await http.post(
+    final response = await _post(
       Uri.parse('$baseUrl/driver/rides/$rideId/status/'),
       headers: {..._headers, 'Content-Type': 'application/json'},
       body: jsonEncode({'status': status}),
@@ -340,7 +341,7 @@ class ApiService {
   }
 
   Future<void> verifyRidePickupCode(int rideId, String code) async {
-    final response = await http.post(
+    final response = await _post(
       Uri.parse('$baseUrl/driver/rides/$rideId/verify-code/'),
       headers: {..._headers, 'Content-Type': 'application/json'},
       body: jsonEncode({'code': code}),
@@ -353,7 +354,7 @@ class ApiService {
   }
 
   Future<void> rateRide(int rideId, int rating) async {
-    final response = await http.post(
+    final response = await _post(
       Uri.parse('$baseUrl/rides/$rideId/rating/'),
       headers: {..._headers, 'Content-Type': 'application/json'},
       body: jsonEncode({'rating': rating}),
@@ -366,13 +367,34 @@ class ApiService {
   }
 
   Future<void> driverWalletRecharge(int amount) async {
-    final response = await http.post(
+    final response = await _post(
       Uri.parse('$baseUrl/driver/wallet/recharge/'),
       headers: {..._headers, 'Content-Type': 'application/json'},
       body: jsonEncode({'amount': amount}),
     );
     if (response.statusCode != 200) throw ApiException('Error en la recarga.');
   }
+
+  Future<http.Response> _request(Future<http.Response> Function() send) async {
+    try {
+      return await send().timeout(const Duration(seconds: 20));
+    } on TimeoutException {
+      throw ApiException(
+          'IR tardó demasiado en responder. Inténtalo de nuevo.');
+    } on http.ClientException {
+      throw ApiException(
+          'No hay conexión con IR. Revisa tu conexión e inténtalo de nuevo.');
+    }
+  }
+
+  Future<http.Response> _get(Uri uri, {Map<String, String>? headers}) =>
+      _request(() => http.get(uri, headers: headers));
+  Future<http.Response> _post(Uri uri,
+          {Map<String, String>? headers, Object? body}) =>
+      _request(() => http.post(uri, headers: headers, body: body));
+  Future<http.Response> _patch(Uri uri,
+          {Map<String, String>? headers, Object? body}) =>
+      _request(() => http.patch(uri, headers: headers, body: body));
 
   Map<String, String> get _headers => {
         'Authorization': 'Token $token',

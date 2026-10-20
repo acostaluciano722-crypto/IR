@@ -1,20 +1,23 @@
 import 'package:flutter/material.dart';
-
+import 'package:flutter/services.dart';
 import '../services/api_service.dart';
-import '../ui/ir_brand.dart';
+import '../ui/ir_auth_layout.dart';
+import '../ui/ir_components.dart';
+import '../ui/ir_motion.dart';
 import '../ui/ir_theme.dart';
 import 'driver_home_screen.dart';
 import 'passenger_home_screen.dart';
 
 class RegisterScreen extends StatefulWidget {
-  const RegisterScreen({super.key});
-
+  const RegisterScreen({this.api, super.key});
+  final ApiService? api;
   @override
   State<RegisterScreen> createState() => _RegisterScreenState();
 }
 
 class _RegisterScreenState extends State<RegisterScreen> {
-  final _api = ApiService();
+  late final _api = widget.api ?? ApiService();
+  final _form = GlobalKey<FormState>();
   final _name = TextEditingController();
   final _identifier = TextEditingController();
   final _phone = TextEditingController();
@@ -27,7 +30,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
   bool _loading = false;
   bool _obscure = true;
   String? _error;
-
   @override
   void dispose() {
     for (final controller in [
@@ -46,19 +48,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
   }
 
   Future<void> _register() async {
+    if (_loading || !_form.currentState!.validate()) return;
     FocusScope.of(context).unfocus();
-    if (_password.text != _confirm.text) {
-      setState(() => _error = 'Las contraseñas no coinciden.');
-      return;
-    }
-    if (_role == 'driver' &&
-        (_document.text.trim().isEmpty ||
-            _vehicle.text.trim().isEmpty ||
-            _plate.text.trim().isEmpty)) {
-      setState(() => _error =
-          'Completa los datos del conductor y del vehículo.');
-      return;
-    }
     setState(() {
       _loading = true;
       _error = null;
@@ -74,170 +65,223 @@ class _RegisterScreenState extends State<RegisterScreen> {
           vehicleType: _vehicle.text.trim(),
           vehiclePlate: _plate.text.trim());
       if (!mounted) return;
+      TextInput.finishAutofillContext();
       final screen = user['role'] == 'driver'
           ? DriverHomeScreen(api: _api, user: user)
           : PassengerHomeScreen(api: _api, user: user);
       Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => screen), (route) => false);
+          MaterialPageRoute(builder: (_) => screen), (_) => false);
     } on ApiException catch (error) {
-      setState(() => _error = error.message);
+      if (mounted) setState(() => _error = error.message);
     } catch (_) {
-      setState(() => _error = 'No hay conexión con IR. Revisa el servidor.');
+      if (mounted) {
+        setState(() => _error =
+            'No hay conexión con IR. Revisa tu conexión e inténtalo de nuevo.');
+      }
     } finally {
       if (mounted) setState(() => _loading = false);
     }
   }
 
   @override
-  Widget build(BuildContext context) {
-    final driver = _role == 'driver';
-    return Theme(
-      data: irDarkTheme(),
-      child: Scaffold(
-        backgroundColor: IrPalette.surface,
-        body: SafeArea(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(22, 18, 22, 30),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Row(children: [
-                IconButton(
-                    tooltip: 'Volver',
-                    onPressed: () => Navigator.of(context).maybePop(),
-                    padding: EdgeInsets.zero,
-                    icon: const Icon(Icons.arrow_back,
-                        color: IrPalette.text, size: 28)),
-                const SizedBox(width: 10),
-                const IrLogoMark(size: 46, showWordmark: true),
-              ]),
-              const SizedBox(height: 34),
-              const Text('Únete a IR',
-                  style: TextStyle(
-                      color: IrPalette.text,
-                      fontSize: 31,
-                      fontWeight: FontWeight.w800)),
-              const SizedBox(height: 10),
-              const Text('Crea tu cuenta como pasajero o conductor.',
-                  style: TextStyle(color: IrPalette.muted, fontSize: 16)),
-              const SizedBox(height: 28),
-              const Text('Quiero registrarme como',
-                  style: TextStyle(
-                      color: IrPalette.text, fontWeight: FontWeight.w700)),
-              const SizedBox(height: 10),
-              SegmentedButton<String>(
-                  segments: const [
-                    ButtonSegment(
-                        value: 'passenger',
-                        label: Text('Pasajero'),
-                        icon: Icon(Icons.person_outline)),
-                    ButtonSegment(
-                        value: 'driver',
-                        label: Text('Conductor'),
-                        icon: Icon(Icons.drive_eta_outlined)),
-                  ],
-                  selected: {_role},
-                  onSelectionChanged: (value) => setState(() {
-                        _role = value.first;
-                        _error = null;
-                      })),
-              const SizedBox(height: 20),
-              _field(_name, 'Nombre completo', Icons.person_outline),
-              const SizedBox(height: 12),
-              _field(_identifier, 'Correo electrónico o usuario',
-                  Icons.alternate_email,
-                  keyboard: TextInputType.emailAddress),
-              const SizedBox(height: 12),
-              _field(_phone, 'Número de celular', Icons.phone_outlined,
-                  keyboard: TextInputType.phone),
-              if (driver) ...[
-                const SizedBox(height: 22),
-                const Text('Datos para validar tu registro de conductor',
+  Widget build(BuildContext context) => IrAuthLayout(
+      title: 'Únete a IR',
+      subtitle: 'Crea tu cuenta como pasajero o conductor.',
+      child: AutofillGroup(
+          child: Form(
+              key: _form,
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const Text('Quiero registrarme como',
+                        style: TextStyle(fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 12),
+                    _RoleSelector(
+                        value: _role,
+                        enabled: !_loading,
+                        onChanged: (value) => setState(() {
+                              _role = value;
+                              _error = null;
+                            })),
+                    const SizedBox(height: 24),
+                    _field(_name, 'Nombre completo', Icons.person_outline,
+                        autofill: AutofillHints.name, maxLength: 150),
+                    const SizedBox(height: 16),
+                    _field(
+                        _identifier, 'Correo o usuario', Icons.alternate_email,
+                        keyboard: TextInputType.emailAddress,
+                        autofill: AutofillHints.username,
+                        maxLength: 255),
+                    const SizedBox(height: 16),
+                    _field(_phone, 'Número de celular', Icons.phone_outlined,
+                        keyboard: TextInputType.phone,
+                        autofill: AutofillHints.telephoneNumber,
+                        maxLength: 20),
+                    AnimatedSize(
+                        duration:
+                            IrMotion.duration(context, IrMotion.transition),
+                        curve: Curves.easeOutCubic,
+                        child: _role == 'driver'
+                            ? Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                    const SizedBox(height: 24),
+                                    const Text(
+                                        'Datos del conductor y del vehículo',
+                                        style: TextStyle(
+                                            fontWeight: FontWeight.w700)),
+                                    const SizedBox(height: 16),
+                                    _field(_document, 'Número de documento',
+                                        Icons.badge_outlined,
+                                        maxLength: 20),
+                                    const SizedBox(height: 16),
+                                    _field(_vehicle, 'Tipo de vehículo',
+                                        Icons.directions_car_outlined,
+                                        maxLength: 30),
+                                    const SizedBox(height: 16),
+                                    _field(_plate, 'Placa del vehículo',
+                                        Icons.confirmation_number_outlined,
+                                        maxLength: 10,
+                                        capitalization:
+                                            TextCapitalization.characters),
+                                  ])
+                            : const SizedBox.shrink()),
+                    const SizedBox(height: 24),
+                    _field(_password, 'Contraseña', Icons.lock_outline,
+                        obscure: _obscure,
+                        autofill: AutofillHints.newPassword,
+                        validator: (value) => (value?.length ?? 0) < 8
+                            ? 'Usa al menos 8 caracteres.'
+                            : null,
+                        helper: 'Mínimo 8 caracteres',
+                        suffix: IconButton(
+                            tooltip: _obscure
+                                ? 'Mostrar contraseña'
+                                : 'Ocultar contraseña',
+                            onPressed: () =>
+                                setState(() => _obscure = !_obscure),
+                            icon: Icon(_obscure
+                                ? Icons.visibility_outlined
+                                : Icons.visibility_off_outlined))),
+                    const SizedBox(height: 16),
+                    _field(_confirm, 'Confirmar contraseña',
+                        Icons.lock_reset_outlined,
+                        obscure: _obscure,
+                        validator: (value) => value == null || value.isEmpty
+                            ? 'Confirma tu contraseña.'
+                            : value != _password.text
+                                ? 'Las contraseñas no coinciden.'
+                                : null,
+                        done: true),
+                    if (_error != null) ...[
+                      const SizedBox(height: 16),
+                      IrInlineMessage(message: _error!, error: true)
+                    ],
+                    const SizedBox(height: 24),
+                    FilledButton(
+                        onPressed: _loading ? null : _register,
+                        child: _loading
+                            ? const IrButtonProgress()
+                            : const Text('Crear cuenta')),
+                  ]))));
+  Widget _field(
+    TextEditingController controller,
+    String label,
+    IconData icon, {
+    TextInputType? keyboard,
+    bool obscure = false,
+    Widget? suffix,
+    String? autofill,
+    String? helper,
+    int? maxLength,
+    String? Function(String?)? validator,
+    bool done = false,
+    TextCapitalization capitalization = TextCapitalization.none,
+  }) =>
+      TextFormField(
+          controller: controller,
+          enabled: !_loading,
+          keyboardType: keyboard,
+          obscureText: obscure,
+          textCapitalization: capitalization,
+          textInputAction: done ? TextInputAction.done : TextInputAction.next,
+          onFieldSubmitted: done ? (_) => _register() : null,
+          autofillHints: autofill == null ? null : [autofill],
+          autocorrect: false,
+          enableSuggestions: controller != _password && controller != _confirm,
+          maxLength: maxLength,
+          validator: validator ??
+              (value) => value == null || value.trim().isEmpty
+                  ? 'Completa este campo.'
+                  : null,
+          decoration: InputDecoration(
+              labelText: label,
+              helperText: helper,
+              counterText: '',
+              prefixIcon: Icon(icon),
+              suffixIcon: suffix));
+}
+
+class _RoleSelector extends StatelessWidget {
+  const _RoleSelector(
+      {required this.value, required this.enabled, required this.onChanged});
+
+  final String value;
+  final bool enabled;
+  final ValueChanged<String> onChanged;
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+        builder: (context, constraints) => Row(children: [
+          _option(context, 'passenger', 'Pasajero', Icons.person_outline,
+              constraints.maxWidth),
+          const SizedBox(width: 8),
+          _option(context, 'driver', 'Conductor', Icons.local_taxi_outlined,
+              constraints.maxWidth),
+        ]),
+      );
+
+  Widget _option(BuildContext context, String key, String label, IconData icon,
+      double totalWidth) {
+    final selected = value == key;
+    final available = totalWidth - 8;
+    final width = available * (selected ? .58 : .42);
+    return Semantics(
+      selected: selected,
+      button: true,
+      child: AnimatedContainer(
+        width: width,
+        height: 72,
+        duration: IrMotion.duration(context, IrMotion.transition),
+        curve: Curves.easeOutCubic,
+        decoration: BoxDecoration(
+          color: selected ? IrPalette.accent : context.irColors.input,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(
+              color: selected ? IrPalette.accent : context.irColors.border),
+        ),
+        child: InkWell(
+          onTap: enabled ? () => onChanged(key) : null,
+          borderRadius: BorderRadius.circular(18),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            child: Row(children: [
+              Icon(icon,
+                  size: 22,
+                  color: selected ? IrPalette.ink : context.irColors.muted),
+              const SizedBox(width: 7),
+              Flexible(
+                child: Text(label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                     style: TextStyle(
-                        color: IrPalette.text, fontWeight: FontWeight.w700)),
-                const SizedBox(height: 12),
-                _field(_document, 'Número de documento', Icons.badge_outlined),
-                const SizedBox(height: 12),
-                _field(_vehicle, 'Tipo de vehículo',
-                    Icons.directions_car_outlined),
-                const SizedBox(height: 12),
-                _field(_plate, 'Placa del vehículo',
-                    Icons.confirmation_number_outlined),
-              ],
-              const SizedBox(height: 18),
-              _field(_password, 'Contraseña (mínimo 8 caracteres)',
-                  Icons.lock_outline,
-                  obscure: _obscure),
-              const SizedBox(height: 12),
-              _field(_confirm, 'Confirmar contraseña', Icons.lock_reset_outlined,
-                  obscure: _obscure,
-                  suffix: IconButton(
-                      tooltip: _obscure ? 'Mostrar contraseña' : 'Ocultar contraseña',
-                      onPressed: () =>
-                          setState(() => _obscure = !_obscure),
-                      icon: Icon(
-                          _obscure
-                              ? Icons.visibility_outlined
-                              : Icons.visibility_off_outlined,
-                          color: IrPalette.muted))),
-              if (_error != null) ...[
-                const SizedBox(height: 14),
-                Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                        color: const Color(0xFF351D20),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: const Color(0xFF7D3F45))),
-                    child: Text(_error!,
-                        style: const TextStyle(color: Color(0xFFFFB4AB)))),
-              ],
-              const SizedBox(height: 22),
-              SizedBox(
-                  width: double.infinity,
-                  child: FilledButton(
-                      onPressed: _loading ? null : _register,
-                      style: FilledButton.styleFrom(
-                          backgroundColor: IrPalette.accent,
-                          foregroundColor: IrPalette.ink,
-                          minimumSize: const Size.fromHeight(58),
-                          shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(16))),
-                      child: _loading
-                          ? const SizedBox(
-                              width: 22,
-                              height: 22,
-                              child: CircularProgressIndicator(
-                                  strokeWidth: 2, color: IrPalette.ink))
-                          : const Text('Crear cuenta',
-                              style: TextStyle(
-                                  fontSize: 16, fontWeight: FontWeight.w800)))),
+                        color: selected ? IrPalette.ink : context.irColors.text,
+                        fontWeight: FontWeight.w800)),
+              ),
             ]),
           ),
         ),
       ),
     );
   }
-
-  Widget _field(TextEditingController controller, String label, IconData icon,
-          {TextInputType? keyboard, bool obscure = false, Widget? suffix}) =>
-      TextField(
-          controller: controller,
-          keyboardType: keyboard,
-          obscureText: obscure,
-          style: const TextStyle(color: IrPalette.text, fontSize: 16),
-          decoration: InputDecoration(
-              labelText: label,
-              labelStyle: const TextStyle(color: IrPalette.muted),
-              prefixIcon: Icon(icon, color: IrPalette.muted),
-              suffixIcon: suffix,
-              filled: true,
-              fillColor: IrPalette.raised,
-              contentPadding:
-                  const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
-              enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(16),
-                  borderSide: const BorderSide(color: IrPalette.border)),
-              focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(16),
-                  borderSide:
-                      const BorderSide(color: IrPalette.accent, width: 1.5))));
 }
