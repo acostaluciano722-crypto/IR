@@ -1,3 +1,5 @@
+import os
+
 from django.test import SimpleTestCase
 
 
@@ -9,4 +11,4 @@ class DefaultDatabaseConfigTest(SimpleTestCase):
             settings.DATABASES['default']['ENGINE'],
             'django.db.backends.postgresql',
         )
-        self.assertEqual(settings.DATABASES['default']['PORT'], '5433')
+        self.assertEqual(settings.DATABASES['default']['PORT'], os.environ.get('DB_PORT', '5433'))

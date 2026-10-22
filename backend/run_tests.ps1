@@ -1,6 +1,8 @@
+param([switch]$Docker)
+
 $ErrorActionPreference = 'Stop'
 $irPython = Join-Path $PSScriptRoot '.venv\Scripts\python.exe'
-if (-not (Test-Path -LiteralPath $irPython)) { throw 'Instala backend\.venv y requirements.txt primero.' }
+if (-not $Docker -and -not (Test-Path -LiteralPath $irPython)) { throw 'Instala backend\.venv y requirements.txt primero o usa -Docker.' }
 . (Join-Path $PSScriptRoot 'docker_database.ps1')
 
 # Copia solo el esquema externo: no copia usuarios, claves, viajes ni saldos.
@@ -27,7 +29,13 @@ try {
     $env:DB_TEST_NAME = $irTestDatabase
     Push-Location $PSScriptRoot
     try {
-        & $irPython manage.py test coredata config.tests --keepdb --noinput
+        if ($Docker) {
+            $irProjectRoot = Split-Path -Parent $PSScriptRoot
+            & docker compose --project-directory $irProjectRoot -f (Join-Path $irProjectRoot 'compose.yaml') exec -T -e "DB_TEST_NAME=$irTestDatabase" backend python manage.py test coredata config.tests --keepdb --noinput
+        }
+        else {
+            & $irPython manage.py test coredata config.tests --keepdb --noinput
+        }
         if ($LASTEXITCODE -ne 0) { throw 'Fallaron las pruebas de persistencia.' }
     }
     finally { Pop-Location }

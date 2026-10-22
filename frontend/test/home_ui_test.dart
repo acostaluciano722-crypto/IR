@@ -320,7 +320,11 @@ void main() {
           reason: 'driver=$driver');
       for (final marker in map.markers) {
         expect(marker.icon, isA<BytesMapBitmap>());
-        expect(marker.anchor, const Offset(.5, .5));
+        expect(
+            marker.anchor,
+            marker.markerId.value == 'current-location'
+                ? const Offset(.5, .97)
+                : const Offset(.5, .5));
       }
       final destination = map.markers.singleWhere((marker) =>
           marker.markerId.value ==

@@ -1,10 +1,14 @@
+import uuid
+
 from django.contrib import admin
+from django.core.cache import cache
 from django.db import DatabaseError, connection
 from django.http import JsonResponse
 from django.urls import include, path
 from django.conf import settings
 from django.conf.urls.static import static
 from django.views.decorators.http import require_GET
+from redis.exceptions import RedisError
 
 
 REQUIRED_API_TABLES = {
@@ -43,7 +47,16 @@ def api_health(request):
             'schema': 'incomplete',
             'missing_tables': missing_tables,
         }, status=503)
-    return JsonResponse({'api': 'ok', 'database': 'ok', 'postgis': 'ok'})
+    health = {'api': 'ok', 'database': 'ok', 'postgis': 'ok'}
+    key = f'api-health:{uuid.uuid4().hex}'
+    try:
+        cache.set(key, 'ok', timeout=15)
+        if cache.get(key) != 'ok':
+            raise RuntimeError('Cache check failed')
+        cache.delete(key)
+    except (RedisError, OSError, RuntimeError):
+        return JsonResponse({**health, 'cache': 'unavailable'}, status=503)
+    return JsonResponse({**health, 'cache': 'ok'})
 
 
 def api_status(request):

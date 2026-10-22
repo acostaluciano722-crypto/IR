@@ -7,3 +7,8 @@ frontend/build/
 frontend/.flutter-plugins
 frontend/.flutter-plugins-dependencies
 frontend/.packages
+.env
+.env.*
+!.env.example
+backend/media/
+backend/staticfiles/

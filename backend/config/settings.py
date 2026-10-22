@@ -60,6 +60,7 @@ if DB_ENGINE == 'postgresql':
             'HOST': os.environ.get('DB_HOST', '127.0.0.1'),
             'PORT': os.environ.get('DB_PORT', '5433'),
             'CONN_MAX_AGE': 60,
+            'CONN_HEALTH_CHECKS': True,
             'TEST': {'NAME': os.environ.get('DB_TEST_NAME')},
         }
     }
@@ -77,6 +78,7 @@ TIME_ZONE = 'America/Bogota'
 USE_I18N = True
 USE_TZ = True
 STATIC_URL = 'static/'
+STATIC_ROOT = BASE_DIR / 'staticfiles'
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
@@ -104,3 +106,33 @@ CORS_ALLOW_ALL_ORIGINS = DEBUG and os.environ.get(
 ).strip().lower() in {'1', 'true', 'yes'}
 
 GOOGLE_MAPS_API_KEY = os.environ.get('GOOGLE_MAPS_API_KEY', '')
+
+# Redis is optional for run_dev.ps1; Docker always supplies these URLs.
+REDIS_CACHE_URL = os.environ.get('REDIS_CACHE_URL', '')
+if REDIS_CACHE_URL:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+            'LOCATION': REDIS_CACHE_URL,
+            'KEY_PREFIX': 'ir',
+            'TIMEOUT': 300,
+            'OPTIONS': {'socket_connect_timeout': 2, 'socket_timeout': 2},
+        },
+    }
+
+CELERY_BROKER_URL = os.environ.get('CELERY_BROKER_URL', 'redis://127.0.0.1:6379/0')
+CELERY_RESULT_BACKEND = os.environ.get('CELERY_RESULT_BACKEND', 'redis://127.0.0.1:6379/2')
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+CELERY_TIMEZONE = TIME_ZONE
+CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
+CELERY_BROKER_CONNECTION_TIMEOUT = 3
+CELERY_TASK_TIME_LIMIT = 300
+CELERY_TASK_SOFT_TIME_LIMIT = 240
+CELERY_WORKER_PREFETCH_MULTIPLIER = 1
+CELERY_RESULT_EXPIRES = 3600
+
+# Gunicorn serves Django without runserver's static-file handler.
+if os.environ.get('DJANGO_SERVE_STATIC', '').strip().lower() in {'1', 'true', 'yes'}:
+    MIDDLEWARE.insert(1, 'whitenoise.middleware.WhiteNoiseMiddleware')
