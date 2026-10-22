@@ -20,6 +20,7 @@ import 'driver_wallet_screen.dart';
 import 'bonus_screen.dart';
 import 'points_screen.dart';
 import 'role_section_screen.dart';
+import 'profile_screen.dart';
 
 class DriverHomeScreen extends StatefulWidget {
   const DriverHomeScreen({super.key, required this.api, required this.user});
@@ -44,7 +45,9 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
   int _totalRides = 0;
   String _tier = 'Inicial';
   String _vehicleType = 'carro';
+  String? _photoUrl;
   LatLng _driverLocation = const LatLng(10.391, -75.4794);
+  bool _hasDriverLocation = false;
   StreamSubscription<Position>? _locationSubscription;
   bool _locationPermissionChecked = false;
   bool _isLoading = true;
@@ -54,6 +57,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
   final Set<int> _closedReviewRideIds = <int>{};
   Timer? _refreshTimer;
   Timer? _countdownTimer;
+  Timer? _presenceTimer;
   bool _refreshing = false;
   GoogleMapController? _mapController;
   IrMapSymbols? _mapSymbols;
@@ -78,6 +82,9 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
       if (_status == 'available') _loadAvailableRides();
       _loadMyRides();
     });
+    _presenceTimer = Timer.periodic(const Duration(seconds: 20), (_) {
+      if (mounted && _status == 'available') _publishPresence();
+    });
     _countdownTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (!mounted) return;
       setState(() {
@@ -97,6 +104,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
   void dispose() {
     _refreshTimer?.cancel();
     _countdownTimer?.cancel();
+    _presenceTimer?.cancel();
     _locationSubscription?.cancel();
     _mapController?.dispose();
     _driverSheetController.dispose();
@@ -118,12 +126,14 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
         _tier = profile['tier'] ?? 'Inicial';
         _vehicleType =
             profile['vehicle_type']?.toString().toLowerCase() ?? 'carro';
+        _photoUrl = profile['photo_url']?.toString();
         _isLoading = false;
         _loadError = null;
       });
       if (_status == 'available') {
         _loadAvailableRides();
       }
+      _publishPresence();
       _loadMyRides();
     } catch (e) {
       if (mounted) {
@@ -234,7 +244,9 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
     if (position == null || !mounted) return;
     setState(() {
       _driverLocation = LatLng(position.latitude, position.longitude);
+      _hasDriverLocation = true;
     });
+    if (_status == 'available') _publishPresence();
     await _locationSubscription?.cancel();
     _locationSubscription = Geolocator.getPositionStream(
       locationSettings: const LocationSettings(
@@ -243,8 +255,10 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
       if (mounted) {
         setState(() {
           _driverLocation = LatLng(position.latitude, position.longitude);
+          _hasDriverLocation = true;
         });
       }
+      if (_status == 'available') _publishPresence();
       final active = _activeRideData;
       if (active != null) {
         widget.api
@@ -256,6 +270,16 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
             .catchError((_) => <String, dynamic>{});
       }
     });
+  }
+
+  Future<void> _publishPresence() async {
+    if (!_hasDriverLocation) return;
+    try {
+      await widget.api.publishDriverPresence(
+        latitude: _driverLocation.latitude,
+        longitude: _driverLocation.longitude,
+      );
+    } catch (_) {}
   }
 
   Future<void> _advanceRide(
@@ -455,6 +479,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
       setState(() {
         _status = newStatus;
       });
+      _publishPresence();
       if (newStatus == 'available') {
         _loadAvailableRides();
       } else {
@@ -584,6 +609,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                   rating: _rating,
                   ratingCount: _ratingCount,
                   totalRides: _totalRides,
+                  photoUrl: _photoUrl,
                   onClose: () => _scaffoldKey.currentState?.closeDrawer(),
                   onSectionSelected: (value) {
                     _scaffoldKey.currentState?.closeDrawer();
@@ -852,6 +878,20 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
       });
       return;
     }
+    if (value == 'profile') {
+      Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => ProfileScreen(
+          api: widget.api,
+          name: widget.user['name']?.toString() ?? 'Conductor IR',
+          role: 'driver',
+          photoUrl: _photoUrl,
+          onPhotoChanged: (url) {
+            if (mounted) setState(() => _photoUrl = url);
+          },
+        ),
+      ));
+      return;
+    }
     final screen = value == 'points'
         ? PointsScreen(role: 'driver', points: _points, tier: _tier)
         : value == 'bonus'
@@ -1012,7 +1052,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                       height: 1.35, fontSize: 16, fontWeight: FontWeight.w800)),
               const SizedBox(height: 6),
               Text(
-                  '${ride['passenger_name']}\nPropuesta: ${irMoney(ride['offer_amount'])} · Estimado: ${irMoney(ride['estimated_price'])}\n${ride['distance_km']} km · ${ride['duration_minutes']} min · ${ride['remaining_seconds']} s restantes'),
+                  '${ride['passenger_name']} · ${(ride['passenger_rating_count'] as num? ?? 0) == 0 ? 'Nuevo en IR' : '${(ride['passenger_rating_average'] as num? ?? 0).toStringAsFixed(1)} / 5 (${ride['passenger_rating_count']} calificaciones)'}\nPropuesta: ${irMoney(ride['offer_amount'])} · Estimado: ${irMoney(ride['estimated_price'])}\n${ride['distance_km']} km · ${ride['duration_minutes']} min · ${ride['remaining_seconds']} s restantes'),
               const SizedBox(height: 10),
               IrResponsiveActions(children: [
                 ElevatedButton.icon(
@@ -1324,12 +1364,14 @@ class _DriverSideBar extends StatelessWidget {
       required this.rating,
       required this.ratingCount,
       required this.totalRides,
+      required this.photoUrl,
       required this.onClose,
       required this.onSectionSelected});
   final Map<String, dynamic> user;
   final double rating;
   final int ratingCount;
   final int totalRides;
+  final String? photoUrl;
   final VoidCallback onClose;
   final ValueChanged<String> onSectionSelected;
 
@@ -1365,7 +1407,10 @@ class _DriverSideBar extends StatelessWidget {
               CircleAvatar(
                   radius: 28,
                   backgroundColor: IrPalette.accent,
-                  child: Icon(Icons.person, color: IrPalette.ink, size: 30)),
+                  backgroundImage: photoUrl == null ? null : NetworkImage(photoUrl!),
+                  child: photoUrl == null
+                      ? Icon(Icons.person, color: IrPalette.ink, size: 30)
+                      : null),
               const SizedBox(height: 10),
               Text(user['name']?.toString() ?? 'Conductor IR',
                   textAlign: TextAlign.center,
@@ -1382,7 +1427,7 @@ class _DriverSideBar extends StatelessWidget {
                   children: [
                     ...List.generate(
                         5,
-                        (_) => Icon(Icons.star,
+                        (index) => Icon(index < rating.round() ? Icons.star : Icons.star_border,
                             color: context.irColors.accent, size: 20)),
                     const SizedBox(width: 8),
                     Text('${rating.toStringAsFixed(2)} · $totalRides viajes',

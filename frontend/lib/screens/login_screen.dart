@@ -70,16 +70,16 @@ class _LoginScreenState extends State<LoginScreen> {
                     TextFormField(
                         controller: _usernameController,
                         enabled: !_loading,
-                        keyboardType: TextInputType.emailAddress,
+                        keyboardType: TextInputType.text,
                         textInputAction: TextInputAction.next,
                         autofillHints: const [AutofillHints.username],
                         autocorrect: false,
                         validator: (value) =>
                             value == null || value.trim().isEmpty
-                                ? 'Escribe tu correo o usuario.'
+                                ? 'Escribe tu correo o celular.'
                                 : null,
                         decoration: const InputDecoration(
-                            labelText: 'Correo o usuario',
+                            labelText: 'Correo o celular',
                             prefixIcon: Icon(Icons.person_outline))),
                     const SizedBox(height: 16),
                     TextFormField(

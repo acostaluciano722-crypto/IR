@@ -29,6 +29,10 @@ La experiencia se usa desde un dispositivo móvil con ubicación activa, dentro 
 ## Capabilities and Constraints
 
 - La aplicación debe conservar el mapa, geolocalización, búsqueda de lugares, rutas, tarifas, categorías de vehículo, solicitudes, ofertas, viajes recientes y navegación a puntos, bonificaciones, historial, soporte y perfil.
+- El acceso registrado acepta correo o celular y contraseña; los códigos SMS requieren integrar un proveedor de verificación.
+- Pasajeros y conductores pueden subir, cambiar y eliminar una foto de perfil.
+- La ubicación del conductor se publica mientras está disponible y se muestran vehículos activos cercanos al pasajero cuando prepara una solicitud.
+- La cartera del conductor muestra saldo y movimientos. Las recargas reales requieren una pasarela; el flujo local de desarrollo es solo una simulación.
 - El backend existente es Django y la aplicación cliente existente es Flutter.
 - La interfaz y la terminología principal deben permanecer en español.
 - Los importes se expresan en pesos colombianos (COP).

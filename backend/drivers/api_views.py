@@ -2,6 +2,7 @@ import uuid
 from datetime import timedelta
 from decimal import Decimal
 
+from django.conf import settings
 from django.db import transaction
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -9,7 +10,7 @@ from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from coredata.models import DriverProfile, DriverTransaction, Ride, RideOffer, Vehicle
+from coredata.models import DriverProfile, DriverPresence, DriverTransaction, Ride, RideOffer, Vehicle, UserProfilePhoto
 from coredata.serializers import DriverStatusSerializer, RideSerializer, RideOfferCreateSerializer, WalletRechargeSerializer, offers_for_api, rides_for_api
 from passengers.api_views import _add_points, _name, _profile
 
@@ -53,7 +54,14 @@ class DriverMeView(APIView):
             'rating': float(profile.rating or 0), 'rating_count': profile.rating_count or 0,
             'total_rides': profile.total_rides or 0,
             'vehicle_type': vehicle.category if vehicle and vehicle.category else 'carro',
+            'photo_url': self._photo_url(request),
+            'wallet_recharge_mode': 'sandbox' if settings.DEBUG else 'unavailable',
         })
+
+    @staticmethod
+    def _photo_url(request):
+        photo = UserProfilePhoto.objects.filter(user_id=request.user.pk).first()
+        return request.build_absolute_uri(photo.image.url) if photo and photo.image else None
 
     def patch(self, request):
         profile = _require_driver(request)
@@ -87,6 +95,72 @@ class DriverAvailableRidesView(APIView):
         return Response(results)
 
 
+class DriverPresenceView(APIView):
+    def post(self, request):
+        profile = _require_driver(request)
+        if not profile:
+            return Response({'detail': 'Solo los conductores pueden publicar su ubicación.'}, status=status.HTTP_403_FORBIDDEN)
+        if profile.status != DriverProfile.Status.AVAILABLE:
+            DriverPresence.objects.filter(driver_id=profile.id).delete()
+            return Response({'published': False})
+        try:
+            latitude = float(request.data.get('latitude'))
+            longitude = float(request.data.get('longitude'))
+        except (TypeError, ValueError):
+            return Response({'detail': 'La ubicación no es válida.'}, status=status.HTTP_400_BAD_REQUEST)
+        if not (-90 <= latitude <= 90 and -180 <= longitude <= 180):
+            return Response({'detail': 'La ubicación está fuera de rango.'}, status=status.HTTP_400_BAD_REQUEST)
+        vehicle = Vehicle.objects.filter(driver=profile).order_by('id').first()
+        presence, _ = DriverPresence.objects.update_or_create(
+            driver_id=profile.id,
+            defaults={'latitude': latitude, 'longitude': longitude,
+                      'vehicle_type': vehicle.category if vehicle and vehicle.category else 'carro'},
+        )
+        return Response({'published': True, 'updated_at': presence.updated_at})
+
+    def get(self, request):
+        if not _profile(request.user):
+            return Response({'detail': 'Solo los pasajeros pueden consultar vehículos cercanos.'}, status=status.HTTP_403_FORBIDDEN)
+        try:
+            latitude = float(request.query_params.get('lat'))
+            longitude = float(request.query_params.get('lng'))
+        except (TypeError, ValueError):
+            return Response({'detail': 'Indica una ubicación válida.'}, status=status.HTTP_400_BAD_REQUEST)
+        if not (-90 <= latitude <= 90 and -180 <= longitude <= 180):
+            return Response({'detail': 'La ubicación está fuera de rango.'}, status=status.HTTP_400_BAD_REQUEST)
+        cutoff = timezone.now() - timedelta(minutes=2)
+        from math import cos, radians
+        latitude_delta = 8 / 111
+        longitude_delta = min(180, 8 / max(111 * abs(cos(radians(latitude))), 0.01))
+        online_ids = DriverProfile.objects.filter(
+            status=DriverProfile.Status.AVAILABLE
+        ).values('id')
+        presences = DriverPresence.objects.filter(
+            updated_at__gte=cutoff,
+            driver_id__in=online_ids,
+            latitude__gte=latitude - latitude_delta,
+            latitude__lte=latitude + latitude_delta,
+            longitude__gte=longitude - longitude_delta,
+            longitude__lte=longitude + longitude_delta,
+        )
+        results = []
+        for item in presences:
+            distance = _distance_km(latitude, longitude, item.latitude, item.longitude)
+            if distance <= 8:
+                results.append({'driver_id': str(item.driver_id), 'lat': item.latitude,
+                                'lng': item.longitude, 'vehicle_type': item.vehicle_type,
+                                'distance_km': round(distance, 1)})
+        return Response(results)
+
+
+def _distance_km(lat_a, lng_a, lat_b, lng_b):
+    from math import asin, cos, radians, sin, sqrt
+    d_lat = radians(lat_b - lat_a)
+    d_lng = radians(lng_b - lng_a)
+    value = sin(d_lat / 2) ** 2 + cos(radians(lat_a)) * cos(radians(lat_b)) * sin(d_lng / 2) ** 2
+    return 6371 * 2 * asin(sqrt(value))
+
+
 class DriverRidesView(APIView):
     def get(self, request):
         profile = _require_driver(request)
@@ -114,6 +188,8 @@ class RideOfferCreateView(APIView):
                 Ride.Status.SEARCHING, Ride.Status.REQUESTED, Ride.Status.NEGOTIATING,
             ):
                 return Response({'detail': 'Esta solicitud ya no admite ofertas.'}, status=status.HTTP_409_CONFLICT)
+            if Decimal(amount) < (ride.estimated_price or 0):
+                return Response({'detail': 'Tu oferta no puede estar por debajo de la tarifa mínima del viaje.'}, status=status.HTTP_400_BAD_REQUEST)
             profile = DriverProfile.objects.select_for_update().get(pk=profile.pk)
             if profile.status != DriverProfile.Status.AVAILABLE:
                 return Response({'detail': 'Debes estar disponible para ofertar.'}, status=status.HTTP_409_CONFLICT)
@@ -240,6 +316,12 @@ class RideUpdateStatusView(APIView):
                 profile.wallet_balance -= debit
                 profile.status = DriverProfile.Status.AVAILABLE
                 profile.save(update_fields=['total_rides', 'reserved_balance', 'wallet_balance', 'status'])
+                DriverTransaction.objects.create(
+                    id=uuid.uuid4(), driver_profile=profile, ride=ride,
+                    amount=-debit, movement_type='trip_fee',
+                    payment_reference=str(ride.pk), created_at=timezone.now(),
+                    status='completed',
+                )
                 _add_points(profile, request.user, ride, int(debit // 10), f'PI conductor viaje {ride.pk}', 'driver')
                 passenger = _profile(ride.passenger_profile.user)
                 if passenger:
@@ -258,6 +340,11 @@ class WalletRechargeView(APIView):
         profile = _require_driver(request)
         if not profile:
             return Response({'detail': 'Solo los conductores pueden recargar Bolsa IR.'}, status=status.HTTP_403_FORBIDDEN)
+        if not settings.DEBUG:
+            return Response(
+                {'detail': 'Las recargas reales aún no están habilitadas. No se realizó ningún cargo ni cambio de saldo.'},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
         amount_serializer = WalletRechargeSerializer(data=request.data)
         amount_serializer.is_valid(raise_exception=True)
         amount = Decimal(amount_serializer.validated_data['amount'])
@@ -267,6 +354,22 @@ class WalletRechargeView(APIView):
             profile.save(update_fields=['wallet_balance'])
             DriverTransaction.objects.create(
                 id=uuid.uuid4(), driver_profile=profile, amount=amount,
-                movement_type='recharge', created_at=timezone.now(), status='completed',
+                movement_type='recharge', created_at=timezone.now(), status='sandbox',
             )
-        return Response({'wallet_balance': profile.wallet_balance})
+        return Response({'wallet_balance': profile.wallet_balance, 'mode': 'sandbox'})
+
+
+class DriverWalletTransactionsView(APIView):
+    def get(self, request):
+        profile = _require_driver(request)
+        if not profile:
+            return Response({'detail': 'Solo los conductores pueden consultar la cartera.'}, status=status.HTTP_403_FORBIDDEN)
+        transactions = DriverTransaction.objects.filter(driver_profile=profile).order_by('-created_at')[:30]
+        return Response([{
+            'id': str(item.pk),
+            'amount': item.amount or 0,
+            'type': item.movement_type or 'movement',
+            'status': item.status or 'unknown',
+            'reference': item.payment_reference,
+            'created_at': item.created_at,
+        } for item in transactions])

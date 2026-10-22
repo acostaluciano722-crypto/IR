@@ -1,5 +1,7 @@
 from django.contrib.auth.hashers import check_password
 from django.db import models
+import os
+import uuid
 
 
 class ExternalTable(models.Model):
@@ -42,6 +44,32 @@ class Usuario(ExternalTable):
 
     def __str__(self):
         return self.get_full_name() or self.username
+
+
+def profile_photo_upload_to(instance, filename):
+    extension = os.path.splitext(filename)[1].lower()
+    return f'profile_photos/{instance.user_id}/{uuid.uuid4().hex}{extension}'
+
+
+class UserProfilePhoto(models.Model):
+    """IR-managed profile photo storage, kept separate from the legacy user schema."""
+    user_id = models.UUIDField(unique=True, db_index=True)
+    image = models.FileField(upload_to=profile_photo_upload_to)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'ir_profile_photo'
+
+
+class DriverPresence(models.Model):
+    driver_id = models.UUIDField(unique=True, db_index=True)
+    latitude = models.FloatField()
+    longitude = models.FloatField()
+    vehicle_type = models.CharField(max_length=30, default='carro')
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'ir_driver_presence'
 
 
 class Rango(ExternalTable):

@@ -2,6 +2,7 @@ from .api_views import (
     LoginView,
     NearbyPlacesView,
     PassengerMeView,
+    ProfilePhotoView,
     PlaceDetailsView,
     PlaceSearchView,
     RegisterView,

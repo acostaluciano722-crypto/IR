@@ -2,11 +2,15 @@ from django.contrib import admin
 from django.db import DatabaseError, connection
 from django.http import JsonResponse
 from django.urls import include, path
+from django.conf import settings
+from django.conf.urls.static import static
 from django.views.decorators.http import require_GET
 
 
 REQUIRED_API_TABLES = {
     'historial_puntos',
+    'ir_profile_photo',
+    'ir_driver_presence',
     'ofertas',
     'perfil_conductor',
     'perfil_pasajero',
@@ -61,3 +65,6 @@ urlpatterns = [
     path('api/driver/', include('drivers.urls')),
     path('', api_status, name='api-status'),
 ]
+
+if settings.DEBUG:
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

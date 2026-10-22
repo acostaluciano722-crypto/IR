@@ -13,6 +13,7 @@ from django.conf import settings
 from django.contrib.auth.hashers import make_password
 from django.db import connection, transaction
 from django.db.models import F
+from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.core.signing import TimestampSigner
@@ -29,6 +30,7 @@ from coredata.models import (
     RideOffer,
     Usuario,
     Vehicle,
+    UserProfilePhoto,
 )
 from coredata.serializers import (
     LoginSerializer,
@@ -125,7 +127,9 @@ class LoginView(APIView):
         serializer = LoginSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         identifier = serializer.validated_data['username'].strip().lower()
-        user = Usuario.objects.filter(correo__iexact=identifier).first()
+        user = Usuario.objects.filter(
+            Q(correo__iexact=identifier) | Q(celular=identifier)
+        ).first()
         if not user or not user.check_password(serializer.validated_data['password']):
             return Response({'detail': 'Credenciales inválidas.'}, status=status.HTTP_401_UNAUTHORIZED)
         passenger = _profile(user)
@@ -141,6 +145,7 @@ class LoginView(APIView):
                 'role': user.rol,
                 'points': profile.points if profile else 0,
                 'tier': profile.tier if isinstance(profile, DriverProfile) else (profile.rank.nombre if profile and profile.rank_id else 'Inicial'),
+                'photo_url': PassengerMeView._photo_url_for_user(user),
             },
         })
 
@@ -187,11 +192,19 @@ class RegisterView(APIView):
             'user': {
                 'id': str(user.pk), 'name': _name(user), 'username': user.username,
                 'role': user.rol, 'points': profile.points or 0, 'tier': tier,
+                'photo_url': PassengerMeView._photo_url_for_user(user),
             },
         }, status=status.HTTP_201_CREATED)
 
 
 class PassengerMeView(APIView):
+    @staticmethod
+    def _photo_url_for_user(user, request=None):
+        photo = UserProfilePhoto.objects.filter(user_id=user.pk).first()
+        if not photo or not photo.image:
+            return None
+        return request.build_absolute_uri(photo.image.url) if request else photo.image.url
+
     def get(self, request):
         profile = get_object_or_404(PassengerProfile.objects.select_related('rank'), user=request.user)
         return Response({
@@ -199,7 +212,29 @@ class PassengerMeView(APIView):
             'tier': profile.rank.nombre if profile.rank_id else 'Inicial',
             'rating': float(profile.rating or 0), 'rating_count': profile.rating_count or 0,
             'total_rides': profile.total_rides or 0,
+            'photo_url': self._photo_url_for_user(request.user, request),
         })
+
+
+class ProfilePhotoView(APIView):
+    def post(self, request):
+        from coredata.serializers import ProfilePhotoSerializer
+        serializer = ProfilePhotoSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        photo, _ = UserProfilePhoto.objects.get_or_create(user_id=request.user.pk)
+        old_name = photo.image.name if photo.image else None
+        photo.image = serializer.validated_data['photo']
+        photo.save()
+        if old_name and old_name != photo.image.name:
+            photo.image.storage.delete(old_name)
+        return Response({'photo_url': request.build_absolute_uri(photo.image.url)})
+
+    def delete(self, request):
+        photo = UserProfilePhoto.objects.filter(user_id=request.user.pk).first()
+        if photo:
+            photo.image.delete(save=False)
+            photo.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class PlaceSearchView(APIView):

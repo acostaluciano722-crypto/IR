@@ -20,6 +20,7 @@ class _DriverWalletScreenState extends State<DriverWalletScreen> {
   final _form = GlobalKey<FormState>();
   final _amount = TextEditingController(text: '50000');
   Map<String, dynamic>? _profile;
+  List<Map<String, dynamic>> _transactions = [];
   String? _error;
   bool _loading = true;
   bool _saving = false;
@@ -46,6 +47,12 @@ class _DriverWalletScreenState extends State<DriverWalletScreen> {
           _error = null;
         });
       }
+      try {
+        final transactions = await widget.api.getDriverWalletTransactions();
+        if (mounted) setState(() => _transactions = transactions);
+      } on ApiException catch (error) {
+        if (mounted) setState(() => _error = error.message);
+      }
     } catch (_) {
       if (mounted) {
         setState(() =>
@@ -55,6 +62,21 @@ class _DriverWalletScreenState extends State<DriverWalletScreen> {
       if (mounted) setState(() => _loading = false);
     }
   }
+
+  String _transactionDate(dynamic value) {
+    final parsed = DateTime.tryParse(value?.toString() ?? '')?.toLocal();
+    if (parsed == null) return 'Fecha no disponible';
+    String two(int number) => number.toString().padLeft(2, '0');
+    return '${two(parsed.day)}/${two(parsed.month)}/${parsed.year} · ${two(parsed.hour)}:${two(parsed.minute)}';
+  }
+
+  String _transactionStatus(dynamic value) => const {
+        'completed': 'Completado',
+        'sandbox': 'Prueba de desarrollo',
+        'pending': 'Pendiente',
+        'failed': 'Fallido',
+        'cancelled': 'Cancelado',
+      }[value?.toString()] ?? 'Estado no disponible';
 
   Future<void> _recharge() async {
     if (_saving || _confirming || !_form.currentState!.validate()) return;
@@ -78,11 +100,13 @@ class _DriverWalletScreenState extends State<DriverWalletScreen> {
                   ]));
       if (confirmed != true || !mounted) return;
       setState(() => _saving = true);
-      await widget.api.driverWalletRecharge(amount);
+      final result = await widget.api.driverWalletRecharge(amount);
       await _load();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Recarga registrada: ${irMoney(amount)}.')));
+            SnackBar(content: Text(result['mode'] == 'sandbox'
+                ? 'Recarga de prueba registrada: ${irMoney(amount)}.'
+                : 'Recarga registrada: ${irMoney(amount)}.')));
       }
     } on ApiException catch (error) {
       if (mounted) setState(() => _error = error.message);
@@ -128,6 +152,13 @@ class _DriverWalletScreenState extends State<DriverWalletScreen> {
                           const SizedBox(height: 20),
                         ],
                         if (_profile != null) ...[
+                          if (_profile!['wallet_recharge_mode'] == 'sandbox') ...[
+                            Text(
+                              'Modo de prueba: esta recarga no procesa un pago real.',
+                              style: TextStyle(color: context.irColors.muted),
+                            ),
+                            const SizedBox(height: 12),
+                          ],
                           IrPanel(
                             accent: true,
                             padding: const EdgeInsets.all(22),
@@ -153,6 +184,34 @@ class _DriverWalletScreenState extends State<DriverWalletScreen> {
                             ]),
                           ),
                           const SizedBox(height: 18),
+                          if (_transactions.isNotEmpty) ...[
+                            IrPanel(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text('Movimientos recientes', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900)),
+                                  const SizedBox(height: 10),
+                                  ..._transactions.map((item) {
+                                    final value = num.tryParse(item['amount'].toString()) ?? 0;
+                                    final isRecharge = item['type'] == 'recharge';
+                                    return ListTile(
+                                      contentPadding: EdgeInsets.zero,
+                                      leading: Icon(isRecharge ? Icons.add_circle_outline : Icons.route_outlined, color: context.irColors.accent),
+                                      title: Text(isRecharge ? 'Recarga' : 'Cargo de viaje'),
+                                      subtitle: Text('${_transactionDate(item['created_at'])} · ${_transactionStatus(item['status'])}'),
+                                      trailing: Text('${value < 0 ? '−' : '+'}${irMoney(value.abs())}', style: const TextStyle(fontWeight: FontWeight.w800)),
+                                    );
+                                  }),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 18),
+                          ] else ...[
+                            IrPanel(
+                              child: Text('Todavía no hay movimientos en tu cartera.', style: TextStyle(color: context.irColors.muted)),
+                            ),
+                            const SizedBox(height: 18),
+                          ],
                           IrPanel(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -164,6 +223,13 @@ class _DriverWalletScreenState extends State<DriverWalletScreen> {
                                         ?.copyWith(
                                             fontWeight: FontWeight.w900,
                                             letterSpacing: -.5)),
+                                if (_profile!['wallet_recharge_mode'] == 'unavailable') ...[
+                                  const SizedBox(height: 12),
+                                  Text(
+                                    'Las recargas están temporalmente deshabilitadas. No se realizará ningún cargo ni cambio de saldo.',
+                                    style: TextStyle(color: context.irColors.muted, height: 1.4),
+                                  ),
+                                ] else ...[
                                 const SizedBox(height: 6),
                                 Text('Define el monto antes de confirmarlo.',
                                     style: TextStyle(
@@ -206,6 +272,7 @@ class _DriverWalletScreenState extends State<DriverWalletScreen> {
                                               strokeWidth: 2))
                                       : const Text('Revisar recarga'),
                                 ),
+                                ],
                               ],
                             ),
                           ),

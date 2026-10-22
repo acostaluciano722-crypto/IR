@@ -18,6 +18,7 @@ import 'welcome_screen.dart';
 import 'bonus_screen.dart';
 import 'points_screen.dart';
 import 'role_section_screen.dart';
+import 'profile_screen.dart';
 
 class PassengerHomeScreen extends StatefulWidget {
   const PassengerHomeScreen({required this.api, required this.user, super.key});
@@ -45,6 +46,8 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
   double _rating = 0;
   int _ratingCount = 0;
   int _totalRides = 0;
+  String? _photoUrl;
+  BitmapDescriptor? _passengerMarkerIcon;
   LatLng _location = const LatLng(10.391, -75.4794);
   LatLng? _destinationLocation;
   String? _selectedDestination;
@@ -54,6 +57,8 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
   StreamSubscription<Position>? _locationSubscription;
   Timer? _searchDebounce;
   Timer? _rideRefreshTimer;
+  Timer? _nearbyDriversTimer;
+  List<Map<String, dynamic>> _nearbyDrivers = [];
   GoogleMapController? _mapController;
   IrMapSymbols? _mapSymbols;
   final DraggableScrollableController _rideSheetController =
@@ -77,6 +82,8 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
     _startLocationTracking();
     _rideRefreshTimer =
         Timer.periodic(const Duration(seconds: 5), (_) => _loadRides());
+    _nearbyDriversTimer = Timer.periodic(
+        const Duration(seconds: 15), (_) => _loadNearbyDrivers());
   }
 
   @override
@@ -102,6 +109,7 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
   void dispose() {
     _searchDebounce?.cancel();
     _rideRefreshTimer?.cancel();
+    _nearbyDriversTimer?.cancel();
     _locationSubscription?.cancel();
     _mapController?.dispose();
     _rideSheetController.dispose();
@@ -133,12 +141,43 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
     }
   }
 
+  Future<void> _loadNearbyDrivers() async {
+    if (!_hasInitialLocation || _destinationLocation == null || _activeRide != null) {
+      if (_nearbyDrivers.isNotEmpty && mounted) {
+        setState(() => _nearbyDrivers = []);
+      }
+      return;
+    }
+    try {
+      final nearby = await widget.api.getNearbyDrivers(
+        latitude: _location.latitude,
+        longitude: _location.longitude,
+      );
+      if (mounted) setState(() => _nearbyDrivers = nearby);
+    } catch (_) {
+      // Keep the last known positions when the connection briefly drops.
+    }
+  }
+
   Future<void> _loadMapSymbols() async {
     try {
       final symbols = await IrMapSymbols.load();
       if (mounted) setState(() => _mapSymbols = symbols);
+      await _loadPassengerMapMarker();
     } catch (error) {
       debugPrint('No se pudieron preparar los iconos del mapa: $error');
+    }
+  }
+
+  Future<void> _loadPassengerMapMarker() async {
+    try {
+      final photoUrl = _photoUrl;
+      final symbols = await IrMapSymbols.load();
+      final icon = await symbols.passengerMarker(photoUrl);
+      if (!mounted || photoUrl != _photoUrl) return;
+      setState(() => _passengerMarkerIcon = icon);
+    } catch (error) {
+      debugPrint('No se pudo preparar el marcador del pasajero: $error');
     }
   }
 
@@ -190,7 +229,9 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
           _rating = (profile['rating'] as num?)?.toDouble() ?? 0;
           _ratingCount = profile['rating_count'] ?? 0;
           _totalRides = profile['total_rides'] ?? 0;
+          _photoUrl = profile['photo_url']?.toString();
         });
+        _loadPassengerMapMarker();
       }
     } catch (_) {}
   }
@@ -517,6 +558,7 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
           }
         });
         await _fitRoute(coordinates, route);
+        await _loadNearbyDrivers();
       }
     } on ApiException catch (error) {
       if (mounted) setState(() => _message = error.message);
@@ -682,6 +724,23 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
           (_) => false);
       return;
     }
+    if (value == 'profile') {
+      Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => ProfileScreen(
+          api: widget.api,
+          name: widget.user['name']?.toString() ?? 'Usuario IR',
+          role: 'passenger',
+          photoUrl: _photoUrl,
+          onPhotoChanged: (url) {
+            if (mounted) {
+              setState(() => _photoUrl = url);
+              _loadPassengerMapMarker();
+            }
+          },
+        ),
+      ));
+      return;
+    }
     final screen = value == 'points'
         ? PointsScreen(role: 'passenger', points: _points, tier: _tier)
         : value == 'bonus'
@@ -835,12 +894,33 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
     final driver =
         ride == null ? null : _ridePoint(ride, 'driver_lat', 'driver_lng');
     final markers = <Marker>{};
+    if (ride == null && _destinationLocation != null) {
+      for (final (index, vehicle) in _nearbyDrivers.indexed) {
+        final point = IrMapRoute.point(vehicle['lat'], vehicle['lng']);
+        if (point == null) continue;
+        final type = vehicle['vehicle_type']?.toString().toLowerCase() ?? '';
+        if ((_vehicle == 'moto') != type.contains('moto')) continue;
+        markers.add(Marker(
+          markerId: MarkerId('nearby-driver-$index'),
+          position: point,
+          icon: type.contains('moto')
+              ? symbols[IrMapSymbol.motorcycle]
+              : symbols[IrMapSymbol.car],
+          anchor: const Offset(.5, .5),
+          zIndexInt: 1,
+          infoWindow: InfoWindow(
+            title: type.contains('moto') ? 'Moto disponible' : 'Carro disponible',
+            snippet: 'A ${vehicle['distance_km'] ?? '—'} km',
+          ),
+        ));
+      }
+    }
     if (passenger != null) {
       markers.add(Marker(
         markerId: const MarkerId('current-location'),
         position: passenger,
-        icon: symbols[IrMapSymbol.passenger],
-        anchor: const Offset(.5, .5),
+        icon: _passengerMarkerIcon ?? symbols[IrMapSymbol.passenger],
+        anchor: const Offset(.5, .97),
         zIndexInt: 4,
         infoWindow:
             const InfoWindow(title: 'Tú', snippet: 'Ubicación del pasajero'),
@@ -903,6 +983,7 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
                   rating: _rating,
                   ratingCount: _ratingCount,
                   totalRides: _totalRides,
+                  photoUrl: _photoUrl,
                   onClose: () => _scaffoldKey.currentState?.closeDrawer(),
                   onSectionSelected: _openMenuSection))),
       backgroundColor: context.irColors.surface,
@@ -1161,6 +1242,7 @@ class _PassengerSideBar extends StatelessWidget {
       required this.rating,
       required this.ratingCount,
       required this.totalRides,
+      required this.photoUrl,
       required this.onClose,
       required this.onSectionSelected});
   final Map<String, dynamic> user;
@@ -1169,6 +1251,7 @@ class _PassengerSideBar extends StatelessWidget {
   final double rating;
   final int ratingCount;
   final int totalRides;
+  final String? photoUrl;
   final VoidCallback onClose;
   final ValueChanged<String> onSectionSelected;
 
@@ -1201,8 +1284,10 @@ class _PassengerSideBar extends StatelessWidget {
               CircleAvatar(
                   radius: 28,
                   backgroundColor: IrPalette.accent,
-                  child:
-                      Icon(Icons.person, color: Color(0xFF171B1D), size: 30)),
+                  backgroundImage: photoUrl == null ? null : NetworkImage(photoUrl!),
+                  child: photoUrl == null
+                      ? Icon(Icons.person, color: Color(0xFF171B1D), size: 30)
+                      : null),
               const SizedBox(height: 10),
               Text(user['name']?.toString() ?? 'Usuario IR',
                   textAlign: TextAlign.center,
@@ -1909,6 +1994,14 @@ class _OfferTile extends StatelessWidget {
                 Text('${offer['amount']} COP · ${offer['status']}',
                     style:
                         TextStyle(color: context.irColors.muted, fontSize: 12)),
+                Text(
+                    (offer['driver_rating_count'] as num? ?? 0) == 0
+                        ? 'Nuevo en IR · ${offer['vehicle_type'] ?? 'Vehículo sin indicar'}'
+                        : '${(offer['driver_rating'] as num? ?? 0).toStringAsFixed(1)} / 5 · ${offer['driver_rating_count']} calificaciones · ${offer['vehicle_type'] ?? 'Vehículo'}',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                        color: context.irColors.muted, fontSize: 11)),
               ])),
           if (enabled)
             Column(children: [

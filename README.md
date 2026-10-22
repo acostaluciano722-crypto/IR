@@ -1,6 +1,6 @@
 # IR
 
-Primer vertical slice de la plataforma de movilidad IR: login breve y flujo inicial de pasajero.
+IR es una app de movilidad en Flutter con experiencias de pasajero y conductor y una API Django. El pasajero propone una tarifa y elige entre ofertas; el conductor responde solicitudes y administra su Bolsa IR.
 
 ## Backend
 
@@ -64,10 +64,21 @@ El usuario puede buscar lugares, seleccionar una sugerencia y enviar el pedido a
 
 Al seleccionar una sugerencia de Places, el backend obtiene sus coordenadas y calcula distancia y duración con Google Directions. La posición del pasajero se mantiene activa con un stream de ubicación y la ruta se recalcula al desplazarse.
 
-## Alcance actual
+## Alcance inicial del proyecto
 
 - Login sobre la tabla `USUARIO` con token firmado.
 - Perfil mínimo del pasajero: nombre, rango y puntos.
 - Solicitud de viaje con origen, destino y tipo Economy/Moto.
 - Historial de solicitudes del usuario.
 - Identidad visual inicial basada en Lemon Tonic, aproximada como `#E8F044`.
+
+## Funciones actuales
+
+- El acceso acepta correo o celular y contraseña. Todavía no se envían códigos SMS.
+- El pasajero solicita viajes, compara ofertas por monto, calificación y tipo de vehículo, sigue el viaje y califica al conductor.
+- El conductor publica disponibilidad, ve solicitudes, acepta o contraoferta, navega el viaje y califica al pasajero.
+- Al seleccionar un destino, el pasajero puede ver carros y motos activos dentro de ocho kilómetros. Las ubicaciones dejan de mostrarse si no se actualizan durante dos minutos.
+- Pasajeros y conductores pueden elegir, cambiar y quitar su foto de perfil desde la galería.
+- La cartera muestra movimientos recientes. Las recargas son simuladas en desarrollo y se bloquean en producción hasta conectar una pasarela real.
+
+Las nuevas tablas de fotos y presencia se crean con las migraciones existentes; `run_dev.ps1` las aplica al arrancar. En producción, configura un almacenamiento de medios para las fotos antes de habilitar el flujo.

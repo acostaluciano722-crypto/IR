@@ -1,8 +1,21 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }
+
+val localProperties = Properties().apply {
+    val localPropertiesFile = rootProject.file("local.properties")
+    if (localPropertiesFile.exists()) {
+        localPropertiesFile.inputStream().use { properties -> load(properties) }
+    }
+}
+val mapsApiKey = providers.gradleProperty("MAPS_API_KEY")
+    .orElse(providers.environmentVariable("MAPS_API_KEY"))
+    .orElse(localProperties.getProperty("MAPS_API_KEY") ?: "")
+    .get()
 
 android {
     namespace = "com.ir.ir_mobile"
@@ -27,6 +40,7 @@ android {
         // flag during build.
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        manifestPlaceholders["MAPS_API_KEY"] = mapsApiKey
     }
 
     buildTypes {
