@@ -30,6 +30,14 @@ class RegisterSerializer(serializers.Serializer):
             raise serializers.ValidationError('Ya existe una cuenta con ese correo o usuario.')
         return value
 
+    def validate_phone(self, value):
+        value = value.strip()
+        if not value:
+            raise serializers.ValidationError('El celular es obligatorio.')
+        if Usuario.objects.filter(celular=value).exists():
+            raise serializers.ValidationError('Ya existe una cuenta con ese celular.')
+        return value
+
     def validate_name(self, value):
         if not value.strip():
             raise serializers.ValidationError('El nombre es obligatorio.')
@@ -54,6 +62,10 @@ class RideCreateSerializer(serializers.Serializer):
         attrs['destination'] = attrs['destination'].strip()
         if not attrs['origin'] or not attrs['destination']:
             raise serializers.ValidationError('El origen y el destino son obligatorios.')
+        if attrs['offer_amount'] < attrs['estimated_price']:
+            raise serializers.ValidationError({
+                'offer_amount': 'La oferta no puede estar por debajo de la tarifa mínima indicada.'
+            })
         return attrs
 
 
@@ -73,7 +85,29 @@ class RideOfferCreateSerializer(serializers.Serializer):
 
 
 class WalletRechargeSerializer(serializers.Serializer):
-    amount = serializers.IntegerField(min_value=5000)
+    amount = serializers.IntegerField(min_value=5000, max_value=99_999_999)
+
+
+class ProfilePhotoSerializer(serializers.Serializer):
+    photo = serializers.FileField()
+
+    def validate_photo(self, photo):
+        allowed = {'.jpg', '.jpeg', '.png', '.webp'}
+        import os
+        if os.path.splitext(photo.name)[1].lower() not in allowed:
+            raise serializers.ValidationError('Usa una imagen JPG, PNG o WebP.')
+        if photo.size > 5 * 1024 * 1024:
+            raise serializers.ValidationError('La imagen debe pesar máximo 5 MB.')
+        header = photo.read(12)
+        photo.seek(0)
+        valid = (
+            (header.startswith(b'\xff\xd8\xff') and os.path.splitext(photo.name)[1].lower() in {'.jpg', '.jpeg'})
+            or (header.startswith(b'\x89PNG\r\n\x1a\n') and os.path.splitext(photo.name)[1].lower() == '.png')
+            or (header[:4] == b'RIFF' and header[8:12] == b'WEBP' and os.path.splitext(photo.name)[1].lower() == '.webp')
+        )
+        if not valid:
+            raise serializers.ValidationError('El contenido no coincide con una imagen JPG, PNG o WebP válida.')
+        return photo
 
 
 class RideSerializer(serializers.Serializer):
@@ -107,6 +141,8 @@ class RideSerializer(serializers.Serializer):
     pickup_code = serializers.CharField(allow_null=True, allow_blank=True)
     passenger_rating = serializers.IntegerField(allow_null=True)
     driver_rating = serializers.IntegerField(allow_null=True)
+    passenger_rating_average = serializers.SerializerMethodField()
+    passenger_rating_count = serializers.SerializerMethodField()
     offers = serializers.SerializerMethodField()
     created_at = serializers.DateTimeField(allow_null=True)
 
@@ -142,6 +178,14 @@ class RideSerializer(serializers.Serializer):
         vehicle = self._vehicle(obj)
         return vehicle.plate if vehicle else None
 
+    def get_passenger_rating_average(self, obj):
+        profile = obj.passenger_profile
+        return float(profile.rating or 0) if profile else 0
+
+    def get_passenger_rating_count(self, obj):
+        profile = obj.passenger_profile
+        return (profile.rating_count or 0) if profile else 0
+
     def get_live_distance_km(self, obj):
         if None in (obj.passenger_lat, obj.passenger_lng, obj.driver_lat, obj.driver_lng):
             return None
@@ -164,17 +208,23 @@ class RideSerializer(serializers.Serializer):
             offers = obj.offers.select_related('driver_profile__user').annotate(
                 api_id=RawSQL('"ofertas"."api_id"', [], output_field=BigIntegerField())
             )
-        return [
-            {
+        return [self._offer_data(offer) for offer in offers]
+
+    def _offer_data(self, offer):
+        profile = offer.driver_profile
+        vehicles = getattr(profile, '_prefetched_objects_cache', {}).get('vehicles') if profile else None
+        vehicle = next(iter(vehicles), None) if vehicles is not None else (profile.vehicles.order_by('id').first() if profile else None)
+        return {
                 'id': offer.api_id,
                 'amount': offer.amount,
                 'status': offer.status,
-                'driver_id': str(offer.driver_profile.user_id) if offer.driver_profile_id else None,
-                'driver_name': offer.driver_profile.user.get_full_name() if offer.driver_profile_id and offer.driver_profile.user_id else None,
+                'driver_id': str(profile.user_id) if profile and profile.user_id else None,
+                'driver_name': profile.user.get_full_name() if profile and profile.user_id else None,
+                'driver_rating': float(profile.rating or 0) if profile else 0,
+                'driver_rating_count': profile.rating_count or 0 if profile else 0,
+                'vehicle_type': vehicle.category if vehicle else None,
                 'created_at': offer.created_at,
             }
-            for offer in offers
-        ]
 
 
 def rides_for_api(queryset):
@@ -186,7 +236,7 @@ def rides_for_api(queryset):
             'offers',
             queryset=RideOffer.objects.select_related('driver_profile__user').annotate(
                 api_id=RawSQL('"ofertas"."api_id"', [], output_field=BigIntegerField())
-            ),
+            ).prefetch_related('driver_profile__vehicles'),
         ),
     ).annotate(
         api_id=RawSQL('"viaje"."api_id"', [], output_field=BigIntegerField()),

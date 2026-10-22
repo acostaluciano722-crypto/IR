@@ -1,10 +1,11 @@
 from django.urls import path
-from .views import LoginView, NearbyPlacesView, PassengerMeView, PlaceDetailsView, PlaceSearchView, RegisterView, RideCancelView, RideListCreateView, RideLocationView, RideOfferRejectView, RideOfferSelectView, RideRatingView, RouteEstimateView
+from .views import LoginView, NearbyPlacesView, PassengerMeView, ProfilePhotoView, PlaceDetailsView, PlaceSearchView, RegisterView, RideCancelView, RideListCreateView, RideLocationView, RideOfferRejectView, RideOfferSelectView, RideRatingView, RouteEstimateView
 
 urlpatterns = [
     path('auth/login/', LoginView.as_view(), name='login'),
     path('auth/register/', RegisterView.as_view(), name='register'),
     path('passenger/me/', PassengerMeView.as_view(), name='passenger-me'),
+    path('profile/photo/', ProfilePhotoView.as_view(), name='profile-photo'),
     path('places/search/', PlaceSearchView.as_view(), name='places-search'),
     path('places/details/', PlaceDetailsView.as_view(), name='places-details'),
     path('places/nearby/', NearbyPlacesView.as_view(), name='places-nearby'),

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
@@ -12,11 +13,114 @@ class IrMapSymbols {
   IrMapSymbols._(this._icons);
 
   static Future<IrMapSymbols>? _cached;
+  static final Map<String, Future<BitmapDescriptor>> _passengerMarkers = {};
   final Map<IrMapSymbol, BitmapDescriptor> _icons;
 
   static Future<IrMapSymbols> load() => _cached ??= _create();
 
   BitmapDescriptor operator [](IrMapSymbol symbol) => _icons[symbol]!;
+
+  Future<BitmapDescriptor> passengerMarker(String? photoUrl) {
+    final key = photoUrl?.trim().isNotEmpty == true ? photoUrl!.trim() : '';
+    return _passengerMarkers.putIfAbsent(key, () => _createPassengerMarker(key));
+  }
+
+  static Future<BitmapDescriptor> _createPassengerMarker(String photoUrl) async {
+    ui.Image? avatar;
+    if (photoUrl.isNotEmpty) {
+      final completer = Completer<ui.Image>();
+      final stream = NetworkImage(photoUrl).resolve(ImageConfiguration.empty);
+      late final ImageStreamListener listener;
+      listener = ImageStreamListener(
+        (info, _) {
+          if (!completer.isCompleted) completer.complete(info.image.clone());
+        },
+        onError: (error, stackTrace) {
+          if (!completer.isCompleted) completer.completeError(error, stackTrace);
+        },
+      );
+      stream.addListener(listener);
+      try {
+        avatar = await completer.future.timeout(const Duration(seconds: 8));
+      } catch (_) {
+        // Keep the marker usable when a remote profile photo cannot load.
+      } finally {
+        stream.removeListener(listener);
+      }
+    }
+
+    const logicalSize = Size(56, 78);
+    const ratio = 3.0;
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder)..scale(ratio);
+    final pin = Path()
+      ..moveTo(28, 76)
+      ..lineTo(6, 36)
+      ..cubicTo(-1, 22, 7, 3, 28, 3)
+      ..cubicTo(49, 3, 57, 22, 50, 36)
+      ..close();
+    canvas.drawShadow(pin, Colors.black.withValues(alpha: .28), 3, false);
+    canvas.drawPath(pin, Paint()..color = const Color(0xFFFFD000));
+    canvas.drawPath(
+      pin,
+      Paint()
+        ..color = const Color(0xFF171B1D)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.5,
+    );
+
+    const center = Offset(28, 26);
+    canvas.drawCircle(center, 19.5, Paint()..color = Colors.white);
+    canvas.drawCircle(center, 17.2, Paint()..color = const Color(0xFF171B1D));
+    if (avatar != null) {
+      final sourceSize = avatar.width < avatar.height ? avatar.width : avatar.height;
+      final source = Rect.fromLTWH(
+        (avatar.width - sourceSize) / 2,
+        (avatar.height - sourceSize) / 2,
+        sourceSize.toDouble(),
+        sourceSize.toDouble(),
+      );
+      final destination = Rect.fromCircle(center: center, radius: 15.5);
+      canvas.save();
+      canvas.clipPath(Path()..addOval(destination));
+      canvas.drawImageRect(
+        avatar,
+        source,
+        destination,
+        Paint()..filterQuality = FilterQuality.high,
+      );
+      canvas.restore();
+      avatar.dispose();
+    } else {
+      final person = Paint()..color = const Color(0xFF171B1D);
+      canvas.drawCircle(const Offset(28, 22), 5.5, person);
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          const Rect.fromLTRB(18, 28, 38, 39),
+          const Radius.circular(8),
+        ),
+        person,
+      );
+    }
+
+    final picture = recorder.endRecording();
+    final image = await picture.toImage(
+      (logicalSize.width * ratio).round(),
+      (logicalSize.height * ratio).round(),
+    );
+    try {
+      final png = await image.toByteData(format: ui.ImageByteFormat.png);
+      if (png == null) throw StateError('No se pudo dibujar el marcador.');
+      return BitmapDescriptor.bytes(
+        png.buffer.asUint8List(png.offsetInBytes, png.lengthInBytes),
+        width: logicalSize.width,
+        height: logicalSize.height,
+      );
+    } finally {
+      image.dispose();
+      picture.dispose();
+    }
+  }
 
   static Future<IrMapSymbols> _create() async {
     try {

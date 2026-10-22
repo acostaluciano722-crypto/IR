@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
@@ -107,6 +108,66 @@ class ApiService {
           data['detail']?.toString() ?? 'No fue posible cargar tus puntos.');
     }
     return data as Map<String, dynamic>;
+  }
+
+  Future<String?> uploadProfilePhoto({
+    required Uint8List bytes,
+    required String filename,
+  }) async {
+    final request = http.MultipartRequest('POST', Uri.parse('$baseUrl/profile/photo/'))
+      ..headers.addAll(_headers)
+      ..files.add(http.MultipartFile.fromBytes('photo', bytes, filename: filename));
+    final response = await _request(() async {
+      final streamed = await request.send();
+      return http.Response.fromStream(streamed);
+    });
+    final data = _decode(response);
+    if (response.statusCode != 200) {
+      throw ApiException(_errorMessage(data, 'No se pudo guardar la foto.'));
+    }
+    return data['photo_url']?.toString();
+  }
+
+  Future<void> deleteProfilePhoto() async {
+    final response = await _request(() => http.delete(
+          Uri.parse('$baseUrl/profile/photo/'),
+          headers: _headers,
+        ));
+    if (response.statusCode != 204) {
+      final data = _decode(response);
+      throw ApiException(_errorMessage(data, 'No se pudo quitar la foto.'));
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> getNearbyDrivers({
+    required double latitude,
+    required double longitude,
+  }) async {
+    final uri = Uri.parse('$baseUrl/driver/nearby/').replace(queryParameters: {
+      'lat': latitude.toString(),
+      'lng': longitude.toString(),
+    });
+    final response = await _get(uri, headers: _headers);
+    final data = _decode(response);
+    if (response.statusCode != 200) {
+      throw ApiException(_errorMessage(data, 'No se pudieron cargar los vehículos cercanos.'));
+    }
+    return (data as List).cast<Map<String, dynamic>>();
+  }
+
+  Future<void> publishDriverPresence({
+    required double latitude,
+    required double longitude,
+  }) async {
+    final response = await _post(
+      Uri.parse('$baseUrl/driver/presence/'),
+      headers: {..._headers, 'Content-Type': 'application/json'},
+      body: jsonEncode({'latitude': latitude, 'longitude': longitude}),
+    );
+    if (response.statusCode != 200) {
+      final data = _decode(response);
+      throw ApiException(_errorMessage(data, 'No se pudo actualizar tu disponibilidad.'));
+    }
   }
 
   Future<List<Map<String, dynamic>>> searchPlaces(String query) async {
@@ -366,13 +427,29 @@ class ApiService {
     }
   }
 
-  Future<void> driverWalletRecharge(int amount) async {
+  Future<Map<String, dynamic>> driverWalletRecharge(int amount) async {
     final response = await _post(
       Uri.parse('$baseUrl/driver/wallet/recharge/'),
       headers: {..._headers, 'Content-Type': 'application/json'},
       body: jsonEncode({'amount': amount}),
     );
-    if (response.statusCode != 200) throw ApiException('Error en la recarga.');
+    final data = _decode(response);
+    if (response.statusCode != 200) {
+      throw ApiException(_errorMessage(data, 'Error al registrar la recarga.'));
+    }
+    return data as Map<String, dynamic>;
+  }
+
+  Future<List<Map<String, dynamic>>> getDriverWalletTransactions() async {
+    final response = await _get(
+      Uri.parse('$baseUrl/driver/wallet/transactions/'),
+      headers: _headers,
+    );
+    final data = _decode(response);
+    if (response.statusCode != 200) {
+      throw ApiException(_errorMessage(data, 'No se pudo cargar el historial de cartera.'));
+    }
+    return (data as List).cast<Map<String, dynamic>>();
   }
 
   Future<http.Response> _request(Future<http.Response> Function() send) async {

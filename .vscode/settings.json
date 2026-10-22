@@ -252,6 +252,10 @@
         "/^cd C:\\\\Users\\\\pc\\\\IR\\\\backend; \\.\\\\run_dev\\.ps1$/": {
             "approve": true,
             "matchCommandLine": true
+        },
+        "/^cd \"c:\\\\Users\\\\sebas\\\\IR\\\\backend\"; \\.\\\\run_dev\\.ps1$/": {
+            "approve": true,
+            "matchCommandLine": true
         }
     }
 }
