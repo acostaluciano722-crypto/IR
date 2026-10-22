@@ -2,7 +2,31 @@
 
 IR es una app de movilidad en Flutter con experiencias de pasajero y conductor y una API Django. El pasajero propone una tarifa y elige entre ofertas; el conductor responde solicitudes y administra su Bolsa IR.
 
-## Backend
+## Ecosistema en Docker (recomendado)
+
+Requiere Docker Desktop iniciado y el contenedor existente `ir_postgres_postgis` activo. Desde la raíz:
+
+```powershell
+.\run_docker.ps1
+```
+
+El lanzador construye la imagen de Django y arranca **backend**, **Redis** y **Celery worker**. Conecta PostgreSQL a `ir_network` conservando su red original, sus datos y el puerto `5433` para DBeaver. Lee las credenciales existentes solo en memoria, aplica migraciones, verifica el esquema y ejecuta una tarea real a través de Redis y Celery.
+
+La API sigue en `http://127.0.0.1:8000/api`. Flutter se ejecuta como antes: escritorio y web usan `127.0.0.1:8000`, Android Emulator usa `10.0.2.2:8000` y los teléfonos físicos usan la IPv4 del PC. El lanzador agrega las IPv4 actuales a `ALLOWED_HOSTS`. No ejecutes `run_dev.ps1` y el backend Docker simultáneamente en el mismo puerto.
+
+```powershell
+.\run_docker.ps1 -CheckOnly
+Invoke-RestMethod http://127.0.0.1:8000/api/health/
+docker compose ps
+docker compose logs --tail 100 backend worker redis
+docker compose down
+```
+
+`down` detiene los tres servicios del nuevo ecosistema. PostgreSQL sigue administrado por su instalación existente. Las fotos persisten en `backend/media` y Redis usa un volumen con AOF. Para cambios de código, vuelve a ejecutar `run_docker.ps1`; `-SkipBuild` reutiliza la imagen existente.
+
+Consulta [la guía de Docker](docs/docker.md) para configuración manual, pruebas, escalado y alcance de las tareas de ProMaster. El worker está preparado y comprobado; el motor de bonificaciones binomiales todavía no está implementado en el código actual.
+
+## Backend local (alternativa)
 
 ```powershell
 cd backend
@@ -28,7 +52,7 @@ Desde `backend`, ejecuta `./run_dev.ps1 -CheckOnly` para aplicar migraciones y c
 
 En DBeaver, usa `localhost:5433`, base `ir_promaster_db` y esquema `public`. Abre `backend/verify_database.sql` y vuelve a ejecutar la consulta para ver todas las cuentas y sus perfiles. El filtro `LIKE 'dbcheck.%@example.test'` muestra únicamente cuentas de prueba; excluye los usuarios registrados con otro correo.
 
-`backend/run_tests.ps1` comprueba el registro, el login, los perfiles y los vehículos en una base temporal de PostgreSQL/PostGIS. Copia únicamente el esquema y elimina la base temporal al terminar.
+`backend/run_tests.ps1 -Docker` comprueba el registro, el login, los perfiles, los vehículos y la infraestructura con las dependencias del contenedor. Sin `-Docker` utiliza el entorno virtual local. Ambos modos copian únicamente el esquema a una base temporal de PostgreSQL/PostGIS y la eliminan al terminar.
 
 ## Frontend
 

@@ -35,9 +35,12 @@ class _WalletApi extends ApiService {
         'available_balance': '${balance - 1500}.00',
       };
   @override
-  Future<void> driverWalletRecharge(int amount) async {
+  Future<List<Map<String, dynamic>>> getDriverWalletTransactions() async => [];
+  @override
+  Future<Map<String, dynamic>> driverWalletRecharge(int amount) async {
     balance += amount;
     recharges++;
+    return {'wallet_balance': balance, 'mode': 'sandbox'};
   }
 }
 
@@ -50,6 +53,8 @@ void main() {
     expect(find.text('COP 48.500'), findsOneWidget);
     await captureUi(tester, 'wallet');
     await tester.enterText(find.byType(TextFormField), '20000');
+    await tester.ensureVisible(find.text('Revisar recarga'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Revisar recarga'));
     await tester.pumpAndSettle();
     expect(api.recharges, 0);

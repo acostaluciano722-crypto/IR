@@ -54,7 +54,7 @@ class RideCreateSerializerTests(SimpleTestCase):
             'origin': ' Origen ',
             'destination': ' Destino ',
             'vehicle_type': 'economy',
-            'offer_amount': 15000,
+            'offer_amount': 18000,
             'estimated_price': 18000,
             'origin_lat': 10.4,
             'origin_lng': -75.5,
