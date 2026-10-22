@@ -13,6 +13,18 @@ En un teléfono físico configura la IP del equipo que ejecuta Django:
 flutter run --dart-define=API_BASE_URL=http://192.168.1.20:8000/api
 ```
 
+## iOS e IPA
+
+El proyecto iOS está en `ios/`. En un Mac con Xcode completo, configura una clave de Google Maps para iOS copiando `ios/Flutter/Maps.xcconfig.example` a `ios/Flutter/Maps.xcconfig` y reemplazando el valor por una clave restringida al bundle ID `com.ir.irmobile`.
+
+Para compilar con el servidor local, usa la IP de tu Mac y la misma red Wi-Fi:
+
+```sh
+flutter build ipa --release --dart-define=API_BASE_URL=http://192.168.1.20:8000/api
+```
+
+Para distribución, usa una URL HTTPS pública y configura el equipo y certificado de firma de Apple en Xcode. El archivo IPA se genera en `build/ios/ipa/`.
+
 ## Interfaz
 
 - Tema oscuro y claro coherente en bienvenida, autenticación, pasajero, conductor, puntos, bonificaciones, historial, configuración y cartera.
