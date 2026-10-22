@@ -1,16 +1,20 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:pointer_interceptor/pointer_interceptor.dart';
 import '../services/api_service.dart';
+import '../ui/ir_brand.dart';
 import '../ui/ir_components.dart';
 import '../ui/ir_theme.dart';
 import '../ui/ir_motion.dart';
 import '../ui/ir_auth_layout.dart';
 import '../ui/ir_format.dart';
 import '../ui/ir_map_layout.dart';
+import '../ui/ir_map_route.dart';
+import '../ui/ir_map_symbols.dart';
 import 'welcome_screen.dart';
 import 'driver_wallet_screen.dart';
 import 'bonus_screen.dart';
@@ -50,15 +54,13 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
   final Set<int> _closedReviewRideIds = <int>{};
   Timer? _refreshTimer;
   Timer? _countdownTimer;
-  Timer? _mapRecenterTimer;
   bool _refreshing = false;
-  bool _isProgrammaticCameraMove = false;
   GoogleMapController? _mapController;
-  BitmapDescriptor? _carMarkerAsset;
-  BitmapDescriptor? _motoMarkerAsset;
+  IrMapSymbols? _mapSymbols;
+  final _driverSheetController = DraggableScrollableController();
+  double? _mapSheetExtent;
   Map<String, dynamic>? _activeDriverRoute;
   String? _activeDriverRouteKey;
-  int _sheetVersion = 0;
 
   @override
   void initState() {
@@ -70,7 +72,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
             'No se pudo obtener tu ubicación. Revisa los permisos del dispositivo.');
       }
     });
-    _loadVehicleMarkerAssets();
+    _loadMapSymbols();
     _refreshTimer = Timer.periodic(const Duration(seconds: 5), (_) {
       if (!mounted) return;
       if (_status == 'available') _loadAvailableRides();
@@ -95,9 +97,9 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
   void dispose() {
     _refreshTimer?.cancel();
     _countdownTimer?.cancel();
-    _mapRecenterTimer?.cancel();
     _locationSubscription?.cancel();
     _mapController?.dispose();
+    _driverSheetController.dispose();
     super.dispose();
   }
 
@@ -134,20 +136,13 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
     }
   }
 
-  Future<void> _loadVehicleMarkerAssets() async {
+  Future<void> _loadMapSymbols() async {
     try {
-      const configuration = ImageConfiguration(size: Size(64, 64));
-      final car = await BitmapDescriptor.asset(
-          configuration, 'assets/icons/car_marker.svg');
-      final moto = await BitmapDescriptor.asset(
-          configuration, 'assets/icons/moto_marker.svg');
-      if (mounted) {
-        setState(() {
-          _carMarkerAsset = car;
-          _motoMarkerAsset = moto;
-        });
-      }
-    } catch (_) {}
+      final symbols = await IrMapSymbols.load();
+      if (mounted) setState(() => _mapSymbols = symbols);
+    } catch (error) {
+      debugPrint('No se pudieron preparar los iconos del mapa: $error');
+    }
   }
 
   Future<void> _loadMyRides() async {
@@ -315,7 +310,6 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
     if (mounted) {
       setState(() {
         _myRides = _myRides.where((ride) => _rideId(ride) != rideId).toList();
-        _sheetVersion++;
       });
     }
   }
@@ -324,32 +318,65 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
       int.tryParse(ride['id']?.toString() ?? '');
 
   Future<void> _recenterDriverMap() async {
-    _mapRecenterTimer?.cancel();
-    await _animateDriverCamera(CameraUpdate.newLatLngZoom(_driverLocation, 16));
+    await _animateDriverCamera(
+        _cameraForPoints([_driverLocation], maxZoom: 16));
   }
 
   Future<void> _onDriverMapCreated(GoogleMapController controller) async {
     _mapController = controller;
     await _startDriverLocationTracking();
-    await _animateDriverCamera(CameraUpdate.newLatLngZoom(_driverLocation, 16));
-  }
-
-  Future<void> _animateDriverCamera(CameraUpdate update) async {
-    if (_mapController == null) return;
-    _isProgrammaticCameraMove = true;
-    try {
-      await _mapController!.animateCamera(update);
-    } finally {
-      _isProgrammaticCameraMove = false;
+    if (mounted) {
+      await _animateDriverCamera(
+          _cameraForPoints([_driverLocation], maxZoom: 16));
     }
   }
 
-  void _scheduleDriverMapRecenter() {
-    if (_isProgrammaticCameraMove) return;
-    _mapRecenterTimer?.cancel();
-    _mapRecenterTimer = Timer(const Duration(seconds: 5), () {
-      if (mounted) _recenterDriverMap();
-    });
+  CameraUpdate _cameraForPoints(Iterable<LatLng> points,
+          {double maxZoom = 18}) =>
+      IrMapRoute.overview(points,
+          viewport: IrMapRoute.viewport(context),
+          obscured: IrMapRoute.padding(context,
+              _mapSheetExtent ?? IrMapLayout.of(context).driverResting),
+          maxZoom: maxZoom);
+
+  Future<void> _animateDriverCamera(CameraUpdate update) async {
+    if (!mounted || _mapController == null) return;
+    try {
+      if (MediaQuery.disableAnimationsOf(context)) {
+        await _mapController!.moveCamera(update);
+      } else {
+        await _mapController!.animateCamera(update);
+      }
+    } on PlatformException {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('No se pudo ajustar el mapa. Inténtalo de nuevo.')));
+      }
+    }
+  }
+
+  List<LatLng> get _overviewPoints {
+    final route = IrMapRoute.points(_activeDriverRoute);
+    if (route.length >= 2) return route;
+    return _driverMarkers.map((marker) => marker.position).toList();
+  }
+
+  Future<void> _showRouteOverview() async {
+    final points = _overviewPoints;
+    if (points.length < 2) return;
+    final minimum = IrMapLayout.of(context).driverMinimum;
+    if (_driverSheetController.isAttached) {
+      if (MediaQuery.disableAnimationsOf(context)) {
+        _driverSheetController.jumpTo(minimum);
+      } else {
+        await _driverSheetController.animateTo(minimum,
+            duration: IrMotion.transition, curve: Curves.easeOutCubic);
+      }
+    }
+    if (!mounted) return;
+    setState(() => _mapSheetExtent = minimum);
+    await WidgetsBinding.instance.endOfFrame;
+    if (mounted) await _animateDriverCamera(_cameraForPoints(points));
   }
 
   Future<void> _verifyPickupCode(int rideId) async {
@@ -572,12 +599,10 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                   child: GoogleMap(
                 initialCameraPosition: const CameraPosition(
                     target: LatLng(10.391, -75.4794), zoom: 13.8),
-                myLocationEnabled: _locationPermissionChecked,
+                myLocationEnabled: false,
                 myLocationButtonEnabled: false,
                 zoomControlsEnabled: false,
                 onMapCreated: _onDriverMapCreated,
-                onCameraMoveStarted: _scheduleDriverMapRecenter,
-                onCameraIdle: _scheduleDriverMapRecenter,
                 webGestureHandling: WebGestureHandling.greedy,
                 scrollGesturesEnabled: true,
                 zoomGesturesEnabled: true,
@@ -592,14 +617,24 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                   top: 12,
                   right: 16,
                   child: PointerInterceptor(
-                    child: IrMapAction(
-                        icon: Icons.my_location,
-                        label: 'Centrar en mi ubicación',
-                        onPressed: _recenterDriverMap),
+                    child: Row(mainAxisSize: MainAxisSize.min, children: [
+                      if (_overviewPoints.length >= 2) ...[
+                        IrMapAction(
+                            icon: Icons.route_outlined,
+                            label: 'Ver recorrido completo',
+                            onPressed: _showRouteOverview),
+                        const SizedBox(width: 8),
+                      ],
+                      IrMapAction(
+                          icon: Icons.my_location,
+                          label: 'Centrar en mi ubicación',
+                          onPressed: _recenterDriverMap),
+                    ]),
                   )),
             Positioned.fill(
               child: NotificationListener<DraggableScrollableNotification>(
                   onNotification: (notification) {
+                    _mapSheetExtent = notification.extent;
                     final atTop = notification.extent >= .88;
                     if (atTop != _sheetAtTop && mounted) {
                       setState(() => _sheetAtTop = atTop);
@@ -609,8 +644,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                   child: Align(
                     alignment: Alignment.bottomCenter,
                     child: DraggableScrollableSheet(
-                        key: ValueKey(
-                            'driver-ride-sheet-$_sheetVersion-$hasActiveRide-${layout.short}'),
+                        controller: _driverSheetController,
                         expand: false,
                         initialChildSize:
                             hasActiveRide ? layout.driverResting : 1.0,
@@ -694,20 +728,26 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
   }
 
   Set<Marker> get _driverMarkers {
+    final symbols = _mapSymbols;
+    if (symbols == null) return {};
     final markers = <Marker>{};
     final isMoto = _vehicleType.contains('moto');
-    markers.add(Marker(
-      markerId: const MarkerId('driver-current-location'),
-      position: _driverLocation,
-      icon: isMoto
-          ? (_motoMarkerAsset ??
-              BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange))
-          : (_carMarkerAsset ??
-              BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure)),
-      infoWindow: InfoWindow(
-          title: isMoto ? 'Moto del conductor' : 'Carro del conductor',
-          snippet: 'Ubicación actual en tiempo real'),
-    ));
+    final active = _activeRideData;
+    final driver = _locationPermissionChecked
+        ? _driverLocation
+        : IrMapRoute.point(active?['driver_lat'], active?['driver_lng']);
+    if (driver != null) {
+      markers.add(Marker(
+        markerId: const MarkerId('driver-current-location'),
+        position: driver,
+        icon: symbols[isMoto ? IrMapSymbol.motorcycle : IrMapSymbol.car],
+        anchor: const Offset(.5, .5),
+        zIndexInt: 5,
+        infoWindow: InfoWindow(
+            title: isMoto ? 'Tu moto' : 'Tu vehículo',
+            snippet: 'Ubicación del conductor'),
+      ));
+    }
     for (final ride in _availableRides) {
       final lat =
           _coordinate(ride['passenger_lat']) ?? _coordinate(ride['origin_lat']);
@@ -717,15 +757,14 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
         markers.add(Marker(
             markerId: MarkerId('request-${ride['id']}'),
             position: LatLng(lat, lng),
-            icon: BitmapDescriptor.defaultMarkerWithHue(
-                BitmapDescriptor.hueYellow),
+            icon: symbols[IrMapSymbol.pickup],
+            anchor: const Offset(.5, .5),
             infoWindow: InfoWindow(
                 title: 'Solicitud de ${ride['passenger_name']}',
                 snippet:
                     '${ride['distance_km']} km · COP ${ride['offer_amount']}')));
       }
     }
-    final active = _activeRideData;
     if (active != null) {
       final lat = _coordinate(active['origin_lat']);
       final lng = _coordinate(active['origin_lng']);
@@ -733,8 +772,8 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
         markers.add(Marker(
             markerId: const MarkerId('active-pickup'),
             position: LatLng(lat, lng),
-            icon: BitmapDescriptor.defaultMarkerWithHue(
-                BitmapDescriptor.hueYellow),
+            icon: symbols[IrMapSymbol.pickup],
+            anchor: const Offset(.5, .5),
             infoWindow: const InfoWindow(title: 'Punto de recogida')));
       }
       final passengerLat = _coordinate(active['passenger_lat']);
@@ -743,8 +782,9 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
         markers.add(Marker(
           markerId: const MarkerId('passenger-location'),
           position: LatLng(passengerLat, passengerLng),
-          icon:
-              BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
+          icon: symbols[IrMapSymbol.passenger],
+          anchor: const Offset(.5, .5),
+          zIndexInt: 4,
           infoWindow: const InfoWindow(title: 'Ubicación del pasajero'),
         ));
       }
@@ -754,8 +794,8 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
         markers.add(Marker(
           markerId: const MarkerId('active-destination'),
           position: LatLng(destinationLat, destinationLng),
-          icon:
-              BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueYellow),
+          icon: symbols[IrMapSymbol.destination],
+          anchor: const Offset(.5, .5),
           zIndexInt: 2,
           infoWindow: InfoWindow(
               title: active['destination']?.toString() ?? 'Destino',
@@ -767,11 +807,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
   }
 
   Set<Polyline> get _driverRouteLines {
-    final rawPoints = (_activeDriverRoute?['route_points'] as List?) ?? [];
-    final points = rawPoints
-        .map((point) => LatLng(
-            (point['lat'] as num).toDouble(), (point['lng'] as num).toDouble()))
-        .toList();
+    final points = IrMapRoute.points(_activeDriverRoute);
     if (points.length < 2) return {};
     return {
       Polyline(
@@ -1319,12 +1355,7 @@ class _DriverSideBar extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
             children: [
               Row(children: [
-                Expanded(
-                    child: Text('IR',
-                        style: TextStyle(
-                            color: context.irColors.accent,
-                            fontSize: 28,
-                            fontWeight: FontWeight.w900))),
+                const Expanded(child: IrBrandLogo(size: 42)),
                 IconButton(
                     tooltip: 'Cerrar menú',
                     onPressed: onClose,

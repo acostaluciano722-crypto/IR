@@ -25,7 +25,7 @@ class IrAuthLayout extends StatelessWidget {
                   onPressed: () => Navigator.of(context).maybePop(),
                   icon: const Icon(Icons.arrow_back)),
               const SizedBox(width: 12),
-              const IrLogoMark(size: 42, showWordmark: true),
+              const IrBrandLogo(size: 42, showWordmark: true),
             ]),
             SizedBox(height: wide ? 78 : 34),
             Container(

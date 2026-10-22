@@ -2,67 +2,47 @@ import 'package:flutter/material.dart';
 
 import 'ir_theme.dart';
 
-class IrLogoMark extends StatelessWidget {
-  const IrLogoMark({this.size = 96, this.showWordmark = false, super.key});
+class IrBrandLogo extends StatelessWidget {
+  const IrBrandLogo({this.size = 96, this.showWordmark = false, super.key});
 
   final double size;
   final bool showWordmark;
 
   @override
   Widget build(BuildContext context) {
-    final mark = Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        color: IrPalette.accent,
-        borderRadius: BorderRadius.only(
-          topLeft: Radius.circular(size * .28),
-          topRight: Radius.circular(size * .28),
-          bottomRight: Radius.circular(size * .28),
-          bottomLeft: Radius.circular(size * .08),
-        ),
-      ),
-      alignment: Alignment.center,
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          Text(
-            'IR',
-            textScaler: TextScaler.noScaling,
-            style: TextStyle(
-              color: IrPalette.ink,
-              fontFamily: 'Georgia',
-              fontSize: size * .38,
-              fontWeight: FontWeight.w900,
-              letterSpacing: -size * .014,
-              height: .9,
-            ),
-          ),
-          Positioned(
-            top: size * .13,
-            right: size * .13,
-            child: Container(
-              width: size * .07,
-              height: size * .07,
-              decoration: const BoxDecoration(
-                  color: IrPalette.ink, shape: BoxShape.circle),
-            ),
-          ),
-        ],
+    final logo = SizedBox.square(
+      dimension: size,
+      child: Image.asset(
+        'assets/branding/ir_logo.png',
+        fit: BoxFit.contain,
+        filterQuality: FilterQuality.high,
+        excludeFromSemantics: true,
       ),
     );
 
-    if (!showWordmark) return mark;
-    return Row(children: [
-      mark,
-      const SizedBox(width: 12),
-      Text('IR',
-          textScaler: TextScaler.noScaling,
+    if (!showWordmark) {
+      return Semantics(
+        image: true,
+        label: 'IR',
+        child: Center(child: logo),
+      );
+    }
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Semantics(image: true, label: 'IR', child: logo),
+        const SizedBox(width: 12),
+        Text(
+          'IR',
           style: TextStyle(
-              color: context.irColors.text,
-              fontSize: 26,
-              fontWeight: FontWeight.w900,
-              letterSpacing: -.7)),
-    ]);
+            color: context.irColors.text,
+            fontSize: 26,
+            fontWeight: FontWeight.w900,
+            letterSpacing: -.7,
+          ),
+        ),
+      ],
+    );
   }
 }

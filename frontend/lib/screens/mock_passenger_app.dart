@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../state/passenger_app_state.dart';
+import '../ui/ir_brand.dart';
 import '../ui/ir_theme.dart';
 import 'role_section_screen.dart';
 
@@ -46,11 +47,7 @@ class _MockPassengerAppState extends State<MockPassengerApp> {
                 child: ListView(
                   padding: const EdgeInsets.fromLTRB(16, 24, 16, 20),
                   children: [
-                    const Text('IR',
-                        style: TextStyle(
-                            color: IrPalette.accent,
-                            fontSize: 30,
-                            fontWeight: FontWeight.w900)),
+                    const IrBrandLogo(size: 48),
                     const SizedBox(height: 24),
                     _drawerItem(Icons.home_outlined, 'Inicio', () {
                       Navigator.pop(context);

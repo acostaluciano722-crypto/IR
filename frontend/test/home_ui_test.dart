@@ -6,6 +6,9 @@ import 'package:google_maps_flutter_platform_interface/google_maps_flutter_platf
 import 'package:ir_mobile/screens/driver_home_screen.dart';
 import 'package:ir_mobile/screens/passenger_home_screen.dart';
 import 'package:ir_mobile/services/api_service.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart' show GoogleMap;
+import 'package:ir_mobile/ui/ir_map_layout.dart';
+import 'package:ir_mobile/ui/ir_map_symbols.dart';
 import 'package:pointer_interceptor/pointer_interceptor.dart';
 
 import 'ui_review_test.dart' show captureUi, pumpScreen, loadReviewFonts;
@@ -29,6 +32,31 @@ class _MapPlatform extends GoogleMapsFlutterPlatform {
 class _LocationPlatform extends GeolocatorPlatform {
   @override
   Future<bool> isLocationServiceEnabled() async => false;
+}
+
+class _EnabledLocationPlatform extends _LocationPlatform {
+  @override
+  Future<bool> isLocationServiceEnabled() async => true;
+  @override
+  Future<LocationPermission> checkPermission() async =>
+      LocationPermission.whileInUse;
+  @override
+  Future<Position> getCurrentPosition(
+          {LocationSettings? locationSettings}) async =>
+      Position(
+          latitude: 10.41,
+          longitude: -75.51,
+          timestamp: DateTime(2026, 10, 21),
+          accuracy: 1,
+          altitude: 0,
+          altitudeAccuracy: 0,
+          heading: 0,
+          headingAccuracy: 0,
+          speed: 0,
+          speedAccuracy: 0);
+  @override
+  Stream<Position> getPositionStream({LocationSettings? locationSettings}) =>
+      const Stream.empty();
 }
 
 class _Api extends ApiService {
@@ -73,6 +101,37 @@ class _RatingApi extends _Api {
       throw ApiException('No se pudo guardar la calificación.');
 }
 
+class _NearbyApi extends _Api {
+  int selections = 0;
+  @override
+  Future<List<Map<String, dynamic>>> nearbyPlaces(
+          double latitude, double longitude) async =>
+      [
+        {'place_id': 'nearby-clock', 'name': 'Torre del Reloj'}
+      ];
+  @override
+  Future<Map<String, dynamic>> placeDetails(String placeId) async {
+    expect(placeId, 'nearby-clock');
+    selections++;
+    return {'lat': 10.42, 'lng': -75.52};
+  }
+
+  @override
+  Future<Map<String, dynamic>> estimateRoute(
+          {required double originLat,
+          required double originLng,
+          required double destinationLat,
+          required double destinationLng}) async =>
+      {
+        'route_points': [
+          {'lat': originLat, 'lng': originLng},
+          {'lat': destinationLat, 'lng': destinationLng}
+        ],
+        'distance_km': 2,
+        'duration_minutes': 6,
+      };
+}
+
 Map<String, dynamic> _ride(String status) => {
       'id': 1,
       'status': status,
@@ -97,7 +156,10 @@ Map<String, dynamic> _ride(String status) => {
     };
 
 void main() {
-  setUpAll(loadReviewFonts);
+  setUpAll(() async {
+    await loadReviewFonts();
+    await IrMapSymbols.load();
+  });
   setUp(() {
     GoogleMapsFlutterPlatform.instance = _MapPlatform();
     GeolocatorPlatform.instance = _LocationPlatform();
@@ -224,6 +286,87 @@ void main() {
     await tester.ensureVisible(field);
     await tester.pump();
     expect(tester.getRect(field).bottom, lessThanOrEqualTo(524));
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('both roles show custom symbols and a usable route overview',
+      (tester) async {
+    final ride = {
+      ..._ride('accepted'),
+      'origin_lat': '10.420',
+      'origin_lng': '-75.520',
+      'passenger_lat': '10.420',
+      'passenger_lng': '-75.520',
+      'driver_lat': '10.410',
+      'driver_lng': '-75.510',
+      'destination_lat': '10.440',
+      'destination_lng': '-75.540',
+    };
+    for (final driver in [false, true]) {
+      await pumpScreen(
+          tester,
+          driver
+              ? DriverHomeScreen(
+                  api: _Api(rides: [ride], status: 'reserved_for_trip'),
+                  user: user)
+              : PassengerHomeScreen(api: _Api(rides: [ride]), user: user),
+          size: const Size(320, 568),
+          textScale: 1.6);
+      await tester.runAsync(() => IrMapSymbols.load());
+      await tester.pumpAndSettle();
+      final map = tester.widget<GoogleMap>(find.byType(GoogleMap));
+      expect(map.markers.length, greaterThanOrEqualTo(3),
+          reason: 'driver=$driver');
+      for (final marker in map.markers) {
+        expect(marker.icon, isA<BytesMapBitmap>());
+        expect(marker.anchor, const Offset(.5, .5));
+      }
+      final destination = map.markers.singleWhere((marker) =>
+          marker.markerId.value ==
+          (driver ? 'active-destination' : 'destination'));
+      expect(destination.position, const LatLng(10.440, -75.540));
+      expect(map.myLocationEnabled, isFalse);
+      final overview = find.byTooltip('Ver recorrido completo');
+      final menu = find.byTooltip('Abrir menú');
+      expect(tester.getRect(overview).overlaps(tester.getRect(menu)), isFalse);
+      await tester.tap(overview);
+      await tester.pumpAndSettle();
+      final sheet = tester.widget<DraggableScrollableSheet>(
+          find.byType(DraggableScrollableSheet));
+      final layout = IrMapLayout.of(tester.element(find.byType(GoogleMap)));
+      expect(
+          sheet.controller!.size,
+          closeTo(
+              driver ? layout.driverMinimum : layout.passengerMinimum, .01));
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+    }
+  });
+
+  testWidgets('a nearby destination reuses the existing route selection',
+      (tester) async {
+    GeolocatorPlatform.instance = _EnabledLocationPlatform();
+    final api = _NearbyApi();
+    await pumpScreen(tester, PassengerHomeScreen(api: api, user: user));
+    tester
+        .widget<DraggableScrollableSheet>(find.byType(DraggableScrollableSheet))
+        .controller!
+        .jumpTo(.9);
+    await tester.pumpAndSettle();
+    final place = find.text('Torre del Reloj');
+    await tester.ensureVisible(place);
+    await tester.tap(place);
+    await tester.pumpAndSettle();
+    expect(api.selections, 1);
+    expect(tester.widget<TextField>(find.byType(TextField)).controller!.text,
+        'Torre del Reloj');
+    expect(
+        tester
+            .widget<FilledButton>(
+                find.widgetWithText(FilledButton, 'Elegir viaje'))
+            .onPressed,
+        isNotNull);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
   });

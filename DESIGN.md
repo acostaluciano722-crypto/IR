@@ -135,6 +135,8 @@ La apariencia clara usa fondo `#F7F7F2`, superficies blancas, texto `#171B1D` y 
 
 La bienvenida presenta el logo con una entrada de 420 ms. Al elegir iniciar sesión o crear una cuenta, una única secuencia de ruta amarilla y marca IR acompaña la transición de 620 ms; la salida dura 240 ms y no se interpone en el arranque ni en el envío de formularios. Los botones responden al toque con una escala de 0,97 durante 120 ms y al cursor de escritorio con un aumento sutil de 1,015. Los cambios de selección y tamaño usan transiciones breves sin rebote. Los estados de carga usan el acento IR con contraste legible. Las animaciones respetan la preferencia de reducir movimiento, sustituyendo el movimiento espacial por un fundido breve. La navegación posterior conserva las transiciones nativas.
 
+La marca gráfica usa el archivo local `frontend/assets/branding/ir_logo.png` en la bienvenida, acceso, registro, menús y estados de carga. El componente común preserva la proporción cuadrada del original, mantiene el tamaño del símbolo independiente de la escala de texto y deja que el nombre de marca del encabezado respete el tamaño de texto del sistema.
+
 Los formularios limitan el ancho a 480 dp; las páginas de lectura y configuración a 760 dp. Los controles principales tienen al menos 48 dp de área táctil. Las acciones se apilan en pantallas estrechas o con texto ampliado, y los paneles dejan espacio para el teclado y la barra de controles al expandirse.
 
 ## Dirección editorial

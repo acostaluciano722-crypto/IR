@@ -90,7 +90,7 @@ class _WelcomeScreenState extends State<WelcomeScreen>
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(children: [
-              const IrLogoMark(size: 44, showWordmark: true),
+              const IrBrandLogo(size: 44),
               const Spacer(),
               Container(width: 40, height: 2, color: context.irColors.accent),
               const SizedBox(width: 10),
@@ -160,7 +160,7 @@ class _WelcomeScreenState extends State<WelcomeScreen>
                 },
                 child: Padding(
                   padding: EdgeInsets.symmetric(vertical: compact ? 16 : 26),
-                  child: IrLogoMark(size: compact ? 86 : 108),
+                  child: IrBrandLogo(size: compact ? 86 : 108),
                 ),
               ),
               FilledButton(
@@ -252,7 +252,7 @@ class _IrWelcomeReveal extends StatelessWidget {
                         ),
                         Transform.scale(
                           scale: scale,
-                          child: const IrLogoMark(size: 64),
+                          child: const IrBrandLogo(size: 64),
                         ),
                       ],
                     ),

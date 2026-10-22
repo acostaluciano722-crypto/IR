@@ -9,6 +9,7 @@ import 'package:ir_mobile/screens/register_screen.dart';
 import 'package:ir_mobile/screens/welcome_screen.dart';
 import 'package:ir_mobile/screens/driver_wallet_screen.dart';
 import 'package:ir_mobile/services/api_service.dart';
+import 'package:ir_mobile/ui/ir_brand.dart';
 import 'package:ir_mobile/ui/ir_components.dart';
 import 'package:ir_mobile/ui/ir_theme.dart';
 
@@ -175,6 +176,53 @@ void main() {
     expect(find.text('Preparando tu espacio de conductor'), findsOneWidget);
     expect(find.byType(LinearProgressIndicator), findsOneWidget);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('brand logo keeps its proportions across responsive sizes',
+      (tester) async {
+    for (final viewport in [
+      const Size(320, 568),
+      const Size(844, 390),
+      const Size(1024, 768),
+    ]) {
+      tester.view.physicalSize = viewport;
+      tester.view.devicePixelRatio = 1;
+      await tester.pumpWidget(MaterialApp(
+        theme: irDarkTheme(),
+        home: MediaQuery(
+          data: MediaQueryData(
+            size: viewport,
+            textScaler: const TextScaler.linear(1.6),
+          ),
+          child: const Scaffold(
+            body: Center(
+              child: SizedBox(
+                width: 280,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    IrBrandLogo(size: 88),
+                    IrBrandLogo(size: 42, showWordmark: true),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      final logos = find.byType(Image);
+      expect(logos, findsNWidgets(2));
+      for (final logo in logos.evaluate()) {
+        final size = tester.getSize(find.byWidget(logo.widget));
+        expect(size.width, closeTo(size.height, .1));
+      }
+      expect(tester.takeException(), isNull);
+    }
+    tester.view.resetPhysicalSize();
+    tester.view.resetDevicePixelRatio();
   });
 
   test('registration exposes server field errors', () async {

@@ -18,6 +18,8 @@ flutter run --dart-define=API_BASE_URL=http://192.168.1.20:8000/api
 - Tema oscuro y claro coherente en bienvenida, autenticación, pasajero, conductor, puntos, bonificaciones, historial, configuración y cartera.
 - Formularios adaptables al teclado, validación por campo, autofill y protección contra envíos repetidos.
 - Menús nativos con cierre de sesión y controles del mapa separados. La hoja de viaje y los controles flotantes interceptan los punteros para impedir que Google Maps reciba gestos iniciados sobre ellos.
+- Iconos originales IR para pasajero, recogida, destino, carro y moto. El botón «Ver recorrido completo» encuadra los puntos por encima de la hoja; el mapa se centra cuando el usuario lo solicita.
+- Accesos a lugares cercanos utilizando la búsqueda y estimación existentes. Véase la [comparación con las funciones comunes de Uber](docs/uber-comparison.md).
 - Entrada del logo de 650 ms, respuesta al toque de 120 ms y transiciones breves. Las animaciones añadidas respetan la preferencia del sistema de reducir movimiento.
 - Cartera con saldos reales, selección y confirmación del monto, y actualización después de la recarga.
 - Errores de conexión con tiempo límite de 20 segundos; las calificaciones fallidas conservan el formulario para reintentar.

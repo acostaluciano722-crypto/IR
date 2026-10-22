@@ -241,7 +241,7 @@ class IrLoadingState extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             if (!compact) ...[
-              const IrLogoMark(size: 64),
+              const IrBrandLogo(size: 64),
               const SizedBox(height: 22),
             ],
             if (compact)

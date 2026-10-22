@@ -6,11 +6,14 @@ import 'package:pointer_interceptor/pointer_interceptor.dart';
 import 'dart:async';
 
 import '../services/api_service.dart';
+import '../ui/ir_brand.dart';
 import '../ui/ir_theme.dart';
 import '../ui/ir_motion.dart';
 import '../ui/ir_auth_layout.dart';
 import '../ui/ir_format.dart';
 import '../ui/ir_map_layout.dart';
+import '../ui/ir_map_route.dart';
+import '../ui/ir_map_symbols.dart';
 import 'welcome_screen.dart';
 import 'bonus_screen.dart';
 import 'points_screen.dart';
@@ -51,10 +54,8 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
   StreamSubscription<Position>? _locationSubscription;
   Timer? _searchDebounce;
   Timer? _rideRefreshTimer;
-  Timer? _mapRecenterTimer;
   GoogleMapController? _mapController;
-  BitmapDescriptor? _carMarkerAsset;
-  BitmapDescriptor? _motoMarkerAsset;
+  IrMapSymbols? _mapSymbols;
   final DraggableScrollableController _rideSheetController =
       DraggableScrollableController();
   bool _hasInitialLocation = false;
@@ -62,9 +63,9 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
   bool _menuExpanded = false;
   bool _navigationCardCondensed = false;
   bool _sheetAtTop = false;
-  bool _isProgrammaticCameraMove = false;
   bool _keyboardOpen = false;
   double? _restingSheetSize;
+  double? _mapSheetExtent;
   String? _message;
 
   @override
@@ -72,7 +73,7 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
     super.initState();
     _loadRides();
     _loadPassengerProfile();
-    _loadVehicleMarkerAssets();
+    _loadMapSymbols();
     _startLocationTracking();
     _rideRefreshTimer =
         Timer.periodic(const Duration(seconds: 5), (_) => _loadRides());
@@ -101,7 +102,6 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
   void dispose() {
     _searchDebounce?.cancel();
     _rideRefreshTimer?.cancel();
-    _mapRecenterTimer?.cancel();
     _locationSubscription?.cancel();
     _mapController?.dispose();
     _rideSheetController.dispose();
@@ -133,20 +133,13 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
     }
   }
 
-  Future<void> _loadVehicleMarkerAssets() async {
+  Future<void> _loadMapSymbols() async {
     try {
-      const configuration = ImageConfiguration(size: Size(64, 64));
-      final car = await BitmapDescriptor.asset(
-          configuration, 'assets/icons/car_marker.svg');
-      final moto = await BitmapDescriptor.asset(
-          configuration, 'assets/icons/moto_marker.svg');
-      if (mounted) {
-        setState(() {
-          _carMarkerAsset = car;
-          _motoMarkerAsset = moto;
-        });
-      }
-    } catch (_) {}
+      final symbols = await IrMapSymbols.load();
+      if (mounted) setState(() => _mapSymbols = symbols);
+    } catch (error) {
+      debugPrint('No se pudieron preparar los iconos del mapa: $error');
+    }
   }
 
   Future<void> _refreshActiveRideRoute() async {
@@ -595,9 +588,10 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
       final position = await Geolocator.getCurrentPosition();
       await _updateLocation(position, loadNearby: true);
       if (!_hasInitialLocation && _mapController != null) {
-        _hasInitialLocation = true;
+        if (!mounted) return;
+        setState(() => _hasInitialLocation = true);
         await _animatePassengerCamera(
-            CameraUpdate.newLatLngZoom(_location, 16));
+            _cameraForPoints([_location], maxZoom: 16));
       }
       _locationSubscription = Geolocator.getPositionStream(
               locationSettings: const LocationSettings(
@@ -611,27 +605,26 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
   }
 
   Future<void> _recenterOnUser() async {
-    _mapRecenterTimer?.cancel();
     await _startLocationTracking();
-    await _animatePassengerCamera(CameraUpdate.newLatLngZoom(_location, 16));
-  }
-
-  Future<void> _animatePassengerCamera(CameraUpdate update) async {
-    if (_mapController == null) return;
-    _isProgrammaticCameraMove = true;
-    try {
-      await _mapController!.animateCamera(update);
-    } finally {
-      _isProgrammaticCameraMove = false;
+    if (mounted) {
+      await _animatePassengerCamera(_cameraForPoints([_location], maxZoom: 16));
     }
   }
 
-  void _schedulePassengerMapRecenter() {
-    if (_isProgrammaticCameraMove) return;
-    _mapRecenterTimer?.cancel();
-    _mapRecenterTimer = Timer(const Duration(seconds: 5), () {
-      if (mounted) _recenterOnUser();
-    });
+  Future<void> _animatePassengerCamera(CameraUpdate update) async {
+    if (!mounted || _mapController == null) return;
+    try {
+      if (MediaQuery.disableAnimationsOf(context)) {
+        await _mapController!.moveCamera(update);
+      } else {
+        await _mapController!.animateCamera(update);
+      }
+    } on PlatformException {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('No se pudo ajustar el mapa. Inténtalo de nuevo.')));
+      }
+    }
   }
 
   Future<void> _updateLocation(Position position,
@@ -674,8 +667,9 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
   Future<void> _onMapCreated(GoogleMapController controller) async {
     _mapController = controller;
     await _startLocationTracking();
+    if (!mounted) return;
     if (!_hasInitialLocation) {
-      await _animatePassengerCamera(CameraUpdate.newLatLngZoom(_location, 15));
+      await _animatePassengerCamera(_cameraForPoints([_location], maxZoom: 15));
     }
   }
 
@@ -714,21 +708,41 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
     if (_mapController == null) return;
     final points = _routePoints(route, destination);
     final routePoints = points.isEmpty ? [_location, destination] : points;
-    var minLat = routePoints.first.latitude;
-    var maxLat = routePoints.first.latitude;
-    var minLng = routePoints.first.longitude;
-    var maxLng = routePoints.first.longitude;
-    for (final point in routePoints.skip(1)) {
-      minLat = point.latitude < minLat ? point.latitude : minLat;
-      maxLat = point.latitude > maxLat ? point.latitude : maxLat;
-      minLng = point.longitude < minLng ? point.longitude : minLng;
-      maxLng = point.longitude > maxLng ? point.longitude : maxLng;
+    await _animatePassengerCamera(_cameraForPoints(routePoints));
+  }
+
+  CameraUpdate _cameraForPoints(Iterable<LatLng> points,
+          {double maxZoom = 18}) =>
+      IrMapRoute.overview(points,
+          viewport: IrMapRoute.viewport(context),
+          obscured: IrMapRoute.padding(context,
+              _mapSheetExtent ?? IrMapLayout.of(context).passengerResting),
+          maxZoom: maxZoom);
+
+  List<LatLng> get _overviewPoints {
+    final route =
+        IrMapRoute.points(_activeRide != null ? _activeRideRoute : _route);
+    if (route.length >= 2) return route;
+    return _passengerMarkers.map((marker) => marker.position).toList();
+  }
+
+  Future<void> _showRouteOverview() async {
+    final points = _overviewPoints;
+    if (points.length < 2) return;
+    FocusScope.of(context).unfocus();
+    final minimum = IrMapLayout.of(context).passengerMinimum;
+    if (_rideSheetController.isAttached) {
+      if (MediaQuery.disableAnimationsOf(context)) {
+        _rideSheetController.jumpTo(minimum);
+      } else {
+        await _rideSheetController.animateTo(minimum,
+            duration: IrMotion.transition, curve: Curves.easeOutCubic);
+      }
     }
-    await _animatePassengerCamera(CameraUpdate.newLatLngBounds(
-        LatLngBounds(
-            southwest: LatLng(minLat, minLng),
-            northeast: LatLng(maxLat, maxLng)),
-        72));
+    if (!mounted) return;
+    setState(() => _mapSheetExtent = minimum);
+    await WidgetsBinding.instance.endOfFrame;
+    if (mounted) await _animatePassengerCamera(_cameraForPoints(points));
   }
 
   Set<Polyline> get _routeLines {
@@ -766,20 +780,15 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
 
   LatLng? _ridePoint(
       Map<String, dynamic> ride, String latitudeKey, String longitudeKey) {
-    final latitude = _asDouble(ride[latitudeKey]);
-    final longitude = _asDouble(ride[longitudeKey]);
-    if (latitude == null || longitude == null) return null;
-    return LatLng(latitude, longitude);
+    return IrMapRoute.point(ride[latitudeKey], ride[longitudeKey]);
   }
 
-  BitmapDescriptor _driverMarkerIcon(Map<String, dynamic> ride) {
+  IrMapSymbol _driverSymbol(Map<String, dynamic> ride) {
     final vehicle = ride['driver_vehicle_type']?.toString().toLowerCase() ?? '';
     if (vehicle.contains('moto')) {
-      return _motoMarkerAsset ??
-          BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange);
+      return IrMapSymbol.motorcycle;
     }
-    return _carMarkerAsset ??
-        BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure);
+    return IrMapSymbol.car;
   }
 
   String _driverMarkerTitle(Map<String, dynamic> ride) {
@@ -790,14 +799,7 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
   }
 
   List<LatLng> _routePoints(Map<String, dynamic>? route, LatLng destination) {
-    if (route == null) return [];
-    final rawPoints = (route['route_points'] as List?) ?? [];
-    final points = rawPoints
-        .map((point) => LatLng(
-            (point['lat'] as num).toDouble(), (point['lng'] as num).toDouble()))
-        .toList();
-    if (points.length >= 2) return points;
-    return [];
+    return IrMapRoute.points(route);
   }
 
   Map<String, dynamic>? _nextStep(Map<String, dynamic>? route) {
@@ -814,6 +816,75 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
       }
     }
     return steps.isEmpty ? null : steps.last;
+  }
+
+  Set<Marker> get _passengerMarkers {
+    final symbols = _mapSymbols;
+    if (symbols == null) return {};
+    final ride = _activeRide;
+    final passenger = ride == null
+        ? (_hasInitialLocation ? _location : null)
+        : (_ridePoint(ride, 'passenger_lat', 'passenger_lng') ??
+            (_hasInitialLocation ? _location : null));
+    final pickup = ride == null
+        ? (IrMapRoute.points(_route).firstOrNull)
+        : (_ridePoint(ride, 'origin_lat', 'origin_lng') ?? passenger);
+    final destination = ride == null
+        ? _destinationLocation
+        : _ridePoint(ride, 'destination_lat', 'destination_lng');
+    final driver =
+        ride == null ? null : _ridePoint(ride, 'driver_lat', 'driver_lng');
+    final markers = <Marker>{};
+    if (passenger != null) {
+      markers.add(Marker(
+        markerId: const MarkerId('current-location'),
+        position: passenger,
+        icon: symbols[IrMapSymbol.passenger],
+        anchor: const Offset(.5, .5),
+        zIndexInt: 4,
+        infoWindow:
+            const InfoWindow(title: 'Tú', snippet: 'Ubicación del pasajero'),
+      ));
+    }
+    if (pickup != null &&
+        (passenger == null ||
+            Geolocator.distanceBetween(pickup.latitude, pickup.longitude,
+                    passenger.latitude, passenger.longitude) >
+                12)) {
+      markers.add(Marker(
+        markerId: const MarkerId('pickup-location'),
+        position: pickup,
+        icon: symbols[IrMapSymbol.pickup],
+        anchor: const Offset(.5, .5),
+        zIndexInt: 2,
+        infoWindow: const InfoWindow(title: 'Punto de recogida'),
+      ));
+    }
+    if (destination != null) {
+      markers.add(Marker(
+        markerId: const MarkerId('destination'),
+        position: destination,
+        icon: symbols[IrMapSymbol.destination],
+        anchor: const Offset(.5, .5),
+        zIndexInt: 2,
+        infoWindow: InfoWindow(
+            title: ride?['destination']?.toString() ?? _destination.text,
+            snippet: 'Destino del viaje'),
+      ));
+    }
+    if (driver != null) {
+      markers.add(Marker(
+        markerId: const MarkerId('driver-location'),
+        position: driver,
+        icon: symbols[_driverSymbol(ride!)],
+        anchor: const Offset(.5, .5),
+        zIndexInt: 5,
+        infoWindow: InfoWindow(
+            title: _driverMarkerTitle(ride),
+            snippet: 'Ubicación del conductor'),
+      ));
+    }
+    return markers;
   }
 
   @override
@@ -843,71 +914,15 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
               initialCameraPosition: const CameraPosition(
                   target: LatLng(10.405, -75.505), zoom: 14.5),
               onMapCreated: _onMapCreated,
-              onCameraMoveStarted: _schedulePassengerMapRecenter,
-              onCameraIdle: _schedulePassengerMapRecenter,
               myLocationButtonEnabled: false,
-              myLocationEnabled: _hasInitialLocation,
+              myLocationEnabled: false,
               zoomControlsEnabled: false,
               scrollGesturesEnabled: true,
               webGestureHandling: WebGestureHandling.greedy,
               zoomGesturesEnabled: true,
               rotateGesturesEnabled: true,
               tiltGesturesEnabled: true,
-              markers: {
-                Marker(
-                  markerId: const MarkerId('current-location'),
-                  position: _location,
-                  icon: BitmapDescriptor.defaultMarkerWithHue(
-                      BitmapDescriptor.hueYellow),
-                  infoWindow: const InfoWindow(
-                      title: 'Tu ubicación',
-                      snippet: 'Ubicación activa en tiempo real'),
-                ),
-                if (_destinationLocation != null &&
-                    (_activeRide == null ||
-                        _activeRide!['status'] == 'in_progress'))
-                  Marker(
-                      markerId: const MarkerId('destination'),
-                      position: _destinationLocation!,
-                      icon: BitmapDescriptor.defaultMarkerWithHue(
-                          BitmapDescriptor.hueYellow),
-                      zIndexInt: 2,
-                      infoWindow: InfoWindow(
-                          title: _destination.text,
-                          snippet: 'Destino seleccionado')),
-                if (_activeRide != null &&
-                    {'accepted', 'driver_selected'}
-                        .contains(_activeRide!['status']) &&
-                    _ridePoint(_activeRide!, 'origin_lat', 'origin_lng') !=
-                        null)
-                  Marker(
-                    markerId: const MarkerId('pickup-location'),
-                    position:
-                        _ridePoint(_activeRide!, 'origin_lat', 'origin_lng')!,
-                    icon: BitmapDescriptor.defaultMarkerWithHue(
-                        BitmapDescriptor.hueYellow),
-                    zIndexInt: 2,
-                    infoWindow: const InfoWindow(
-                        title: 'Punto de partida',
-                        snippet: 'Tu conductor va hacia aquí'),
-                  ),
-                if (_activeRide?['driver_lat'] != null &&
-                    _activeRide?['driver_lng'] != null)
-                  Marker(
-                    markerId: const MarkerId('driver-location'),
-                    position: LatLng(
-                      _asDouble(_activeRide!['driver_lat'])!,
-                      _asDouble(_activeRide!['driver_lng'])!,
-                    ),
-                    icon: _driverMarkerIcon(_activeRide!),
-                    infoWindow: InfoWindow(
-                        title: _driverMarkerTitle(_activeRide!),
-                        snippet: {'accepted', 'driver_selected'}
-                                .contains(_activeRide?['status'])
-                            ? 'Se acerca a tu punto de partida'
-                            : 'Se dirige a tu destino'),
-                  ),
-              },
+              markers: _passengerMarkers,
               polylines: _routeLines,
               style: context.irColors.light ? null : _googleMapStyle,
             ),
@@ -916,10 +931,19 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
               top: 18,
               right: 18,
               child: PointerInterceptor(
-                  child: IrMapAction(
-                      icon: Icons.my_location,
-                      label: 'Centrar en mi ubicación',
-                      onPressed: _recenterOnUser))),
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                if (_overviewPoints.length >= 2) ...[
+                  IrMapAction(
+                      icon: Icons.route_outlined,
+                      label: 'Ver recorrido completo',
+                      onPressed: _showRouteOverview),
+                  const SizedBox(width: 8),
+                ],
+                IrMapAction(
+                    icon: Icons.my_location,
+                    label: 'Centrar en mi ubicación',
+                    onPressed: _recenterOnUser),
+              ]))),
           Positioned(
             top: 84,
             left: 20,
@@ -960,6 +984,7 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
           Positioned.fill(
             child: NotificationListener<DraggableScrollableNotification>(
               onNotification: (notification) {
+                _mapSheetExtent = notification.extent;
                 final condensed = notification.extent >= 0.52;
                 final atTop = notification.extent >= .88;
                 if ((condensed != _navigationCardCondensed ||
@@ -1166,13 +1191,7 @@ class _PassengerSideBar extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
             children: [
               Row(children: [
-                Expanded(
-                    child: Text('IR',
-                        style: TextStyle(
-                            color: context.irColors.accent,
-                            fontSize: 28,
-                            fontWeight: FontWeight.w900,
-                            letterSpacing: -1))),
+                const Expanded(child: IrBrandLogo(size: 42)),
                 IconButton(
                     tooltip: 'Cerrar menú',
                     onPressed: onClose,
@@ -1421,6 +1440,21 @@ class _RideSheet extends StatelessWidget {
                               color: Color(0xFF171B1D))
                           : const Text('Elegir viaje',
                               style: TextStyle(fontWeight: FontWeight.w800))),
+                ],
+                if (destinationController.text.trim().isEmpty &&
+                    nearbyPlaces.any((place) => place['place_id'] != null)) ...[
+                  const SizedBox(height: 20),
+                  Text('Lugares cercanos',
+                      style: TextStyle(
+                          color: context.irColors.text,
+                          fontSize: 17,
+                          fontWeight: FontWeight.w700)),
+                  ...nearbyPlaces
+                      .where((place) => place['place_id'] != null)
+                      .take(3)
+                      .map((place) => _PlaceRow(
+                          title: place['name']?.toString() ?? 'Destino cercano',
+                          onTap: () => onNearbySelected(place))),
                 ],
               ],
               if (rides.isNotEmpty) ...[
