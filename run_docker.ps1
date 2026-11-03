@@ -9,14 +9,17 @@ foreach ($irName in $irEnvironmentNames) {
 }
 
 try {
-    # Recupera las credenciales existentes solo en memoria y verifica PostGIS.
-    . (Join-Path $PSScriptRoot 'backend\docker_database.ps1')
-    $env:DB_HOST = $irContainerName
-    $env:DB_PORT = '5432'
-    # Resolve .env overrides without writing the rendered configuration or its secrets.
+    # Resolve the selected database before touching the legacy Docker connection.
     $irComposeJson = & docker @irComposeArguments config --format json
     if ($LASTEXITCODE -ne 0) { throw 'La configuracion Compose no es valida.' }
     $irComposeConfiguration = $irComposeJson | ConvertFrom-Json
+    $irUsesSupabase = [bool]$irComposeConfiguration.services.backend.environment.DATABASE_URL
+    if (-not $irUsesSupabase) {
+        # Recupera las credenciales existentes solo en memoria.
+        . (Join-Path $PSScriptRoot 'backend\docker_database.ps1')
+        $env:DB_HOST = $irContainerName
+        $env:DB_PORT = '5432'
+    }
     $irNetworkName = $irComposeConfiguration.networks.ecosystem.name
 
     if (-not $CheckOnly) {
@@ -34,7 +37,7 @@ try {
         docker network create $irNetworkName | Out-Null
         if ($LASTEXITCODE -ne 0) { throw 'No pude crear la red del ecosistema.' }
     }
-    if (-not $irContainer.NetworkSettings.Networks.PSObject.Properties[$irNetworkName]) {
+    if (-not $irUsesSupabase -and -not $irContainer.NetworkSettings.Networks.PSObject.Properties[$irNetworkName]) {
         docker network connect $irNetworkName $irContainerName
         if ($LASTEXITCODE -ne 0) { throw 'No pude conectar PostgreSQL a la red del ecosistema.' }
     }

@@ -1,9 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
-import 'screens/welcome_screen.dart';
+import 'screens/auth_gate.dart';
+import 'services/app_auth.dart';
 import 'ui/ir_theme.dart';
 
-void main() => runApp(const IrApp());
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await AppAuth.initialize();
+  runApp(const IrApp());
+}
 
 class IrApp extends StatelessWidget {
   const IrApp({super.key});
@@ -26,5 +31,5 @@ class IrApp extends StatelessWidget {
                   .accessibilityFeatures.disableAnimations
               ? Duration.zero
               : const Duration(milliseconds: 220),
-          home: const WelcomeScreen()));
+          home: const AuthGate()));
 }

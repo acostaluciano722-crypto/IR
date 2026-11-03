@@ -6,6 +6,7 @@ import '../ui/ir_components.dart';
 import 'driver_home_screen.dart';
 import 'passenger_home_screen.dart';
 import 'register_screen.dart';
+import 'password_help_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({this.api, super.key});
@@ -22,6 +23,7 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _loading = false;
   bool _obscurePassword = true;
   String? _error;
+  String? _notice;
   @override
   void dispose() {
     _usernameController.dispose();
@@ -35,16 +37,25 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() {
       _loading = true;
       _error = null;
+      _notice = null;
     });
     try {
       final user = await _api.login(
           _usernameController.text.trim(), _passwordController.text);
       if (!mounted) return;
       TextInput.finishAutofillContext();
+      if (_api.usesSupabase) {
+        Navigator.of(context).popUntil((route) => route.isFirst);
+        return;
+      }
       Navigator.of(context).pushReplacement(MaterialPageRoute(
           builder: (_) => user['role'] == 'driver'
               ? DriverHomeScreen(api: _api, user: user)
               : PassengerHomeScreen(api: _api, user: user)));
+    } on ProfileRequiredException {
+      if (mounted) Navigator.of(context).popUntil((route) => route.isFirst);
+    } on EmailConfirmationRequired catch (error) {
+      if (mounted) setState(() => _notice = error.message);
     } on ApiException catch (error) {
       if (mounted) setState(() => _error = error.message);
     } catch (_) {
@@ -55,6 +66,34 @@ class _LoginScreenState extends State<LoginScreen> {
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  Future<void> _google() async {
+    if (_loading) return;
+    setState(() { _loading = true; _error = null; _notice = null; });
+    try {
+      await _api.signInWithGoogle();
+      if (mounted) setState(() => _notice = 'Completa el acceso en la ventana de Google.');
+    } catch (error) {
+      if (mounted) {
+        setState(() => _error = error is ApiException
+          ? error.message : 'No pudimos abrir Google. Inténtalo de nuevo.');
+      }
+    } finally { if (mounted) setState(() => _loading = false); }
+  }
+
+  Future<void> _resend() async {
+    if (_loading || !_usernameController.text.contains('@')) return;
+    setState(() { _loading = true; _error = null; });
+    try {
+      await _api.resendConfirmation(_usernameController.text);
+      if (mounted) setState(() => _notice = 'Revisa tu correo para confirmar tu cuenta.');
+    } catch (error) {
+      if (mounted) {
+        setState(() => _error = error is ApiException
+          ? error.message : 'No pudimos enviar el correo. Intenta de nuevo.');
+      }
+    } finally { if (mounted) setState(() => _loading = false); }
   }
 
   @override
@@ -78,9 +117,9 @@ class _LoginScreenState extends State<LoginScreen> {
                             value == null || value.trim().isEmpty
                                 ? 'Escribe tu correo o celular.'
                                 : null,
-                        decoration: const InputDecoration(
-                            labelText: 'Correo o celular',
-                            prefixIcon: Icon(Icons.person_outline))),
+                        decoration: InputDecoration(
+                            labelText: _api.usesSupabase ? 'Correo electrónico' : 'Correo o celular',
+                            prefixIcon: const Icon(Icons.person_outline))),
                     const SizedBox(height: 16),
                     TextFormField(
                         controller: _passwordController,
@@ -110,12 +149,30 @@ class _LoginScreenState extends State<LoginScreen> {
                       const SizedBox(height: 16),
                       IrInlineMessage(message: _error!, error: true)
                     ],
+                    if (_notice != null) ...[
+                      const SizedBox(height: 16),
+                      IrInlineMessage(message: _notice!),
+                    ],
                     const SizedBox(height: 24),
                     FilledButton(
                         onPressed: _loading ? null : _login,
                         child: _loading
                             ? const IrButtonProgress()
                             : const Text('Iniciar sesión')),
+                    if (_api.usesSupabase) ...[
+                      const SizedBox(height: 12),
+                      OutlinedButton.icon(
+                          onPressed: _loading ? null : _google,
+                          icon: Image.asset('assets/icons/google_g.png', width: 20, height: 20),
+                          label: const Text('Continuar con Google')),
+                      const SizedBox(height: 8),
+                      TextButton(onPressed: _loading ? null : () => Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => PasswordHelpScreen(
+                          api: _api, email: _usernameController.text.trim()))),
+                        child: const Text('Olvidé mi contraseña')),
+                      TextButton(onPressed: _loading ? null : _resend,
+                        child: const Text('Reenviar confirmación de correo')),
+                    ],
                     const SizedBox(height: 12),
                     TextButton(
                         onPressed: _loading

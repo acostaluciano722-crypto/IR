@@ -1,0 +1,17 @@
+{
+  "name": "ir-workspace",
+  "private": true,
+  "scripts": {
+    "supabase": "supabase",
+    "supabase:start": "supabase start",
+    "supabase:stop": "supabase stop",
+    "supabase:link": "supabase link --project-ref nligmbbebusjewxrghps",
+    "supabase:status": "supabase status",
+    "supabase:check": "supabase db query --linked --project-ref nligmbbebusjewxrghps --file supabase/checks/shared_project.sql",
+    "supabase:cloud:diff": "supabase config diff --workdir infra/shared --project-ref nligmbbebusjewxrghps",
+    "supabase:cloud:push": "supabase config push --workdir infra/shared --project-ref nligmbbebusjewxrghps"
+  },
+  "devDependencies": {
+    "supabase": "2.122.0"
+  }
+}

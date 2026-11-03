@@ -124,6 +124,8 @@ class LoginView(APIView):
     permission_classes = [permissions.AllowAny]
 
     def post(self, request):
+        if not settings.ALLOW_LEGACY_AUTH:
+            return Response({'detail': 'Usa Supabase Auth para iniciar sesion.'}, status=410)
         serializer = LoginSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         identifier = serializer.validated_data['username'].strip().lower()
@@ -154,6 +156,8 @@ class RegisterView(APIView):
     permission_classes = [permissions.AllowAny]
 
     def post(self, request):
+        if not settings.ALLOW_LEGACY_AUTH:
+            return Response({'detail': 'Usa Supabase Auth para crear tu cuenta.'}, status=410)
         serializer = RegisterSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
@@ -203,7 +207,10 @@ class PassengerMeView(APIView):
         photo = UserProfilePhoto.objects.filter(user_id=user.pk).first()
         if not photo or not photo.image:
             return None
-        return request.build_absolute_uri(photo.image.url) if request else photo.image.url
+        try:
+            return request.build_absolute_uri(photo.image.url) if request else photo.image.url
+        except FileNotFoundError:
+            return None
 
     def get(self, request):
         profile = get_object_or_404(PassengerProfile.objects.select_related('rank'), user=request.user)

@@ -1,0 +1,6 @@
+{
+  "SUPABASE_URL": "https://nligmbbebusjewxrghps.supabase.co",
+  "SUPABASE_PUBLISHABLE_KEY": "REEMPLAZAR_POR_LA_CLAVE_PUBLICABLE",
+  "SUPABASE_AUTH_REDIRECT_URL": "ir://auth/callback",
+  "API_BASE_URL": "http://127.0.0.1:8000/api"
+}

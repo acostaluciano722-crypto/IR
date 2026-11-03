@@ -2,9 +2,17 @@
 
 IR es una app de movilidad en Flutter con experiencias de pasajero y conductor y una API Django. El pasajero propone una tarifa y elige entre ofertas; el conductor responde solicitudes y administra su Bolsa IR.
 
+## Supabase y colaboración
+
+La base ya está migrada al proyecto **IR: APP DE MOVILIDAD** (`nligmbbebusjewxrghps`). Django y Celery usan PostgreSQL/PostGIS compartido, Flutter usa Supabase Auth y las fotos nuevas se guardan en Storage privado. La integración Google está preparada y requiere configurar su cliente OAuth. La configuración de VS Code, los ejemplos de entorno y las migraciones están versionados.
+
+Consulta [la guía de Supabase y trabajo en equipo](docs/supabase.md) para arrancar la app, ver los datos en el esquema `ir`, configurar Google/correo y preparar el entorno de tu compañero. Las credenciales secretas y las copias de datos están excluidas de Git.
+
+Para el segundo integrante, sigue [el arranque del proyecto compartido](docs/colaboracion.md). `npm run supabase:check` permite comprobar el acceso remoto con su propia cuenta, sin iniciar Docker ni modificar los datos.
+
 ## Ecosistema en Docker (recomendado)
 
-Requiere Docker Desktop iniciado y el contenedor existente `ir_postgres_postgis` activo. Desde la raíz:
+Requiere Docker Desktop iniciado. Con `DATABASE_URL` configurada, usa Supabase; durante la transición mantiene el contenedor existente `ir_postgres_postgis`. Desde la raíz:
 
 ```powershell
 .\run_docker.ps1
@@ -36,7 +44,7 @@ py -m venv .venv
 .\run_dev.ps1
 ```
 
-El lanzador comprueba el contenedor `ir_postgres_postgis`, toma su configuración sin imprimir ni guardar la contraseña, aplica las migraciones y sirve Django en `0.0.0.0:8000` para aceptar conexiones de Flutter. La base Docker debe publicar el puerto `5433`.
+El lanzador carga `DATABASE_URL` desde `.env` para Supabase. Si no está configurada, comprueba el contenedor `ir_postgres_postgis` y toma sus credenciales sin imprimir ni guardar la contraseña; esa base debe publicar el puerto `5433`. Aplica las migraciones y sirve Django en `0.0.0.0:8000` para aceptar conexiones de Flutter.
 
 Comprueba que la API y PostGIS respondan:
 
@@ -44,9 +52,11 @@ Comprueba que la API y PostGIS respondan:
 Invoke-RestMethod http://127.0.0.1:8000/api/health/
 ```
 
-Debe devolver `api: ok`, `database: ok` y `postgis: ok`. El login usa `username` y `password`, y devuelve un token firmado con vencimiento de siete días.
+Debe devolver `api: ok`, `database: ok` y `postgis: ok`. Sin Supabase, el login anterior usa `username` y `password` y devuelve un token firmado con vencimiento de siete días. Con Supabase configurado, el SDK administra el acceso por correo/Google y la API valida sus JWT.
 
 ## Verificar PostgreSQL y consultar cuentas
+
+Con Supabase activo, `backend/manage.py check_database` consulta la base compartida. Para DBeaver utiliza el Session pooler y el usuario `ir_backend.nligmbbebusjewxrghps` de tu `.env`, con SSL y esquema `ir`. Las instrucciones siguientes de `localhost:5433` corresponden a la base Docker anterior, que se conserva como copia y para las pruebas.
 
 Desde `backend`, ejecuta `./run_dev.ps1 -CheckOnly` para aplicar migraciones y comprobar las tablas, columnas, PostGIS y cantidades de registros. El lanzador obtiene el puerto publicado y las credenciales del contenedor existente, sin imprimir la contraseña.
 

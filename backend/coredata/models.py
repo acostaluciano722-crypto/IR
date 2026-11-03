@@ -61,6 +61,16 @@ class UserProfilePhoto(models.Model):
         db_table = 'ir_profile_photo'
 
 
+class SupabaseIdentity(models.Model):
+    """Keep domain UUIDs stable while binding them to a verified Auth subject."""
+    auth_user_id = models.UUIDField(primary_key=True)
+    user = models.OneToOneField(Usuario, on_delete=models.CASCADE, related_name='supabase_identity')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'ir_auth_identity'
+
+
 class DriverPresence(models.Model):
     driver_id = models.UUIDField(unique=True, db_index=True)
     latitude = models.FloatField()

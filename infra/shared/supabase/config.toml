@@ -1,0 +1,13 @@
+# Only shared Auth settings are declared here; other services keep their settings.
+project_id = "ir-shared"
+
+[auth]
+site_url = "http://localhost:5353"
+additional_redirect_urls = ["http://127.0.0.1:5353", "http://localhost:5353", "ir://auth/callback"]
+enable_signup = true
+enable_anonymous_sign_ins = false
+minimum_password_length = 8
+
+[auth.email]
+enable_confirmations = true
+secure_password_change_enabled = true

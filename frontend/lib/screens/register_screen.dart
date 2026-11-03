@@ -30,6 +30,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   bool _loading = false;
   bool _obscure = true;
   String? _error;
+  String? _notice;
   @override
   void dispose() {
     for (final controller in [
@@ -53,6 +54,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     setState(() {
       _loading = true;
       _error = null;
+      _notice = null;
     });
     try {
       final user = await _api.register(
@@ -66,11 +68,19 @@ class _RegisterScreenState extends State<RegisterScreen> {
           vehiclePlate: _plate.text.trim());
       if (!mounted) return;
       TextInput.finishAutofillContext();
+      if (_api.usesSupabase) {
+        Navigator.of(context).popUntil((route) => route.isFirst);
+        return;
+      }
       final screen = user['role'] == 'driver'
           ? DriverHomeScreen(api: _api, user: user)
           : PassengerHomeScreen(api: _api, user: user);
       Navigator.of(context).pushAndRemoveUntil(
           MaterialPageRoute(builder: (_) => screen), (_) => false);
+    } on ProfileRequiredException {
+      if (mounted) Navigator.of(context).popUntil((route) => route.isFirst);
+    } on EmailConfirmationRequired catch (error) {
+      if (mounted) setState(() => _notice = error.message);
     } on ApiException catch (error) {
       if (mounted) setState(() => _error = error.message);
     } catch (_) {
@@ -108,20 +118,26 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         autofill: AutofillHints.name, maxLength: 150),
                     const SizedBox(height: 16),
                     _field(
-                        _identifier, 'Correo o usuario', Icons.alternate_email,
+                        _identifier,
+                        _api.usesSupabase
+                            ? 'Correo electrónico'
+                            : 'Correo o usuario',
+                        Icons.alternate_email,
                         keyboard: TextInputType.emailAddress,
                         autofill: AutofillHints.username,
                         maxLength: 255),
-                    const SizedBox(height: 16),
-                    _field(_phone, 'Número de celular', Icons.phone_outlined,
-                        keyboard: TextInputType.phone,
-                        autofill: AutofillHints.telephoneNumber,
-                        maxLength: 20),
+                    if (!_api.usesSupabase) ...[
+                      const SizedBox(height: 16),
+                      _field(_phone, 'Número de celular', Icons.phone_outlined,
+                          keyboard: TextInputType.phone,
+                          autofill: AutofillHints.telephoneNumber,
+                          maxLength: 20),
+                    ],
                     AnimatedSize(
                         duration:
                             IrMotion.duration(context, IrMotion.transition),
                         curve: Curves.easeOutCubic,
-                        child: _role == 'driver'
+                        child: !_api.usesSupabase && _role == 'driver'
                             ? Column(
                                 crossAxisAlignment: CrossAxisAlignment.stretch,
                                 children: [
@@ -146,6 +162,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                             TextCapitalization.characters),
                                   ])
                             : const SizedBox.shrink()),
+                    if (_api.usesSupabase) ...[
+                      const SizedBox(height: 16),
+                      const Text(
+                          'Después de verificar tu correo, completa tu celular y los datos de tu perfil.'),
+                    ],
                     const SizedBox(height: 24),
                     _field(_password, 'Contraseña', Icons.lock_outline,
                         obscure: _obscure,
@@ -176,6 +197,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     if (_error != null) ...[
                       const SizedBox(height: 16),
                       IrInlineMessage(message: _error!, error: true)
+                    ],
+                    if (_notice != null) ...[
+                      const SizedBox(height: 16),
+                      IrInlineMessage(message: _notice!),
                     ],
                     const SizedBox(height: 24),
                     FilledButton(

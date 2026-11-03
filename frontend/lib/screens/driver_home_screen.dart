@@ -861,9 +861,21 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
     return double.tryParse(value?.toString() ?? '');
   }
 
-  void _openDriverSection(BuildContext context, String value) {
+  Future<void> _openDriverSection(BuildContext context, String value) async {
     if (value == 'logout') {
-      widget.api.token = null;
+      try { await widget.api.signOut(); }
+      catch (_) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No pudimos cerrar la sesión. Intenta de nuevo.')));
+        }
+        return;
+      }
+      if (!context.mounted) return;
+      if (widget.api.usesSupabase) {
+        Navigator.of(context).popUntil((route) => route.isFirst);
+        return;
+      }
       Navigator.of(context).pushAndRemoveUntil(
           MaterialPageRoute(builder: (_) => const WelcomeScreen()),
           (_) => false);

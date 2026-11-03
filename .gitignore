@@ -10,5 +10,13 @@ frontend/.packages
 .env
 .env.*
 !.env.example
+!.env.supabase.example
 backend/media/
 backend/staticfiles/
+node_modules/
+**/supabase/.temp/
+**/supabase/.branches/
+supabase/.env
+frontend/config/*.json
+!frontend/config/*.example.json
+backups/

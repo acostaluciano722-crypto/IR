@@ -1,0 +1,29 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Supabase: iniciar entorno local",
+      "type": "shell",
+      "command": "npm run supabase:start",
+      "problemMatcher": []
+    },
+    {
+      "label": "Supabase: vincular IR en la nube",
+      "type": "shell",
+      "command": "npm run supabase:link",
+      "problemMatcher": []
+    },
+    {
+      "label": "Supabase: comprobar proyecto compartido",
+      "type": "shell",
+      "command": "npm run supabase:check",
+      "problemMatcher": []
+    },
+    {
+      "label": "IR: iniciar backend y workers",
+      "type": "shell",
+      "command": "./run_docker.ps1",
+      "problemMatcher": []
+    }
+  ]
+}

@@ -715,10 +715,22 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
     }
   }
 
-  void _openMenuSection(String value) {
+  Future<void> _openMenuSection(String value) async {
     _scaffoldKey.currentState?.closeDrawer();
     if (value == 'logout') {
-      widget.api.token = null;
+      try { await widget.api.signOut(); }
+      catch (_) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No pudimos cerrar la sesión. Intenta de nuevo.')));
+        }
+        return;
+      }
+      if (!mounted) return;
+      if (widget.api.usesSupabase) {
+        Navigator.of(context).popUntil((route) => route.isFirst);
+        return;
+      }
       Navigator.of(context).pushAndRemoveUntil(
           MaterialPageRoute(builder: (_) => const WelcomeScreen()),
           (_) => false);

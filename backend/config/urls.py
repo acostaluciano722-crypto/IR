@@ -9,6 +9,7 @@ from django.conf import settings
 from django.conf.urls.static import static
 from django.views.decorators.http import require_GET
 from redis.exceptions import RedisError
+from coredata.auth_views import CompleteProfileView, CurrentUserView, LegacyPasswordMigrationView, LinkLegacyAccountView
 
 
 REQUIRED_API_TABLES = {
@@ -74,6 +75,10 @@ def api_status(request):
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/health/', api_health, name='api-health'),
+    path('api/auth/me/', CurrentUserView.as_view(), name='auth-me'),
+    path('api/auth/profile/', CompleteProfileView.as_view(), name='auth-profile'),
+    path('api/auth/legacy-migrate/', LegacyPasswordMigrationView.as_view(), name='auth-legacy-migrate'),
+    path('api/auth/link-legacy/', LinkLegacyAccountView.as_view(), name='auth-link-legacy'),
     path('api/', include('passengers.urls')),
     path('api/driver/', include('drivers.urls')),
     path('', api_status, name='api-status'),

@@ -1,0 +1,31 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "IR Web · Supabase compartido",
+      "type": "dart",
+      "request": "launch",
+      "cwd": "${workspaceFolder}/frontend",
+      "deviceId": "chrome",
+      "args": ["--web-port=5353"]
+    },
+    {
+      "name": "IR Web · Supabase local",
+      "type": "dart",
+      "request": "launch",
+      "cwd": "${workspaceFolder}/frontend",
+      "deviceId": "chrome",
+      "args": ["--web-port=5353", "--dart-define-from-file=config/supabase.local.json"]
+    },
+    {
+      "name": "Django · Supabase local",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/backend/manage.py",
+      "python": "${workspaceFolder}/backend/.venv/Scripts/python.exe",
+      "args": ["runserver", "127.0.0.1:8001", "--noreload"],
+      "envFile": "${workspaceFolder}/.env.supabase.local",
+      "django": true
+    }
+  ]
+}

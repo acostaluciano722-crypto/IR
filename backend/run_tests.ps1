@@ -31,10 +31,10 @@ try {
     try {
         if ($Docker) {
             $irProjectRoot = Split-Path -Parent $PSScriptRoot
-            & docker compose --project-directory $irProjectRoot -f (Join-Path $irProjectRoot 'compose.yaml') exec -T -e "DB_TEST_NAME=$irTestDatabase" backend python manage.py test coredata config.tests --keepdb --noinput
+            & docker compose --project-directory $irProjectRoot -f (Join-Path $irProjectRoot 'compose.yaml') run --rm --no-deps -T -e "DB_TEST_NAME=$irTestDatabase" -e "DB_HOST=$irContainerName" -e DB_PORT=5432 -e "DB_NAME=$($env:DB_NAME)" -e "DB_USER=$($env:DB_USER)" -e DB_PASSWORD backend python manage.py test coredata config.tests --settings config.test_settings --keepdb --noinput
         }
         else {
-            & $irPython manage.py test coredata config.tests --keepdb --noinput
+            & $irPython manage.py test coredata config.tests --settings config.test_settings --keepdb --noinput
         }
         if ($LASTEXITCODE -ne 0) { throw 'Fallaron las pruebas de persistencia.' }
     }

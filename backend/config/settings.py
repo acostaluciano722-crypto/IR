@@ -1,7 +1,13 @@
 import os
+import re
 from pathlib import Path
+from urllib.parse import parse_qs, unquote, urlparse
+
+from django.core.exceptions import ImproperlyConfigured
+from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+load_dotenv(BASE_DIR.parent / '.env', override=False)
 SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'dev-only-change-me')
 DEBUG = os.environ.get('DJANGO_DEBUG', 'true').strip().lower() in {'1', 'true', 'yes'}
 ALLOWED_HOSTS = [
@@ -49,6 +55,10 @@ TEMPLATES = [{
 WSGI_APPLICATION = 'config.wsgi.application'
 
 DB_ENGINE = os.environ.get('DB_ENGINE', 'postgresql')
+DATABASE_URL = os.environ.get('DATABASE_URL', '')
+DB_SCHEMA = os.environ.get('DB_SCHEMA', 'public')
+if not re.fullmatch(r'[a-z_][a-z0-9_]*', DB_SCHEMA):
+    raise ImproperlyConfigured('DB_SCHEMA no es un identificador valido.')
 
 if DB_ENGINE == 'postgresql':
     DATABASES = {
@@ -64,6 +74,28 @@ if DB_ENGINE == 'postgresql':
             'TEST': {'NAME': os.environ.get('DB_TEST_NAME')},
         }
     }
+
+    if DATABASE_URL:
+        database_url = urlparse(DATABASE_URL)
+        if database_url.scheme not in {'postgres', 'postgresql'} or not database_url.hostname:
+            raise ImproperlyConfigured('DATABASE_URL debe ser una conexion PostgreSQL.')
+        query = parse_qs(database_url.query)
+        if database_url.port == 6543 and DB_SCHEMA != 'public':
+            raise ImproperlyConfigured('Usa el pooler de sesiones de Supabase en el puerto 5432 para el esquema privado.')
+        DATABASES['default'].update({
+            'NAME': unquote(database_url.path.lstrip('/')),
+            'USER': unquote(database_url.username or ''),
+            'PASSWORD': unquote(database_url.password or ''),
+            'HOST': database_url.hostname,
+            'PORT': str(database_url.port or 5432),
+            'DISABLE_SERVER_SIDE_CURSORS': True,
+            'OPTIONS': {
+                'sslmode': query.get('sslmode', ['require'])[0],
+                'prepare_threshold': None,
+            },
+        })
+    if DB_SCHEMA != 'public':
+        DATABASES['default'].setdefault('OPTIONS', {})['options'] = f'-c search_path={DB_SCHEMA},extensions,public'
 else:
     DATABASES = {
         'default': {
@@ -136,3 +168,27 @@ CELERY_RESULT_EXPIRES = 3600
 # Gunicorn serves Django without runserver's static-file handler.
 if os.environ.get('DJANGO_SERVE_STATIC', '').strip().lower() in {'1', 'true', 'yes'}:
     MIDDLEWARE.insert(1, 'whitenoise.middleware.WhiteNoiseMiddleware')
+
+SUPABASE_URL = os.environ.get('SUPABASE_URL', '').rstrip('/')
+SUPABASE_PUBLISHABLE_KEY = os.environ.get('SUPABASE_PUBLISHABLE_KEY', '')
+SUPABASE_SECRET_KEY = os.environ.get('SUPABASE_SECRET_KEY', '')
+if bool(SUPABASE_URL) != bool(SUPABASE_PUBLISHABLE_KEY):
+    raise ImproperlyConfigured('Configura SUPABASE_URL y SUPABASE_PUBLISHABLE_KEY juntos.')
+SUPABASE_JWT_ISSUER = os.environ.get('SUPABASE_JWT_ISSUER') or f'{SUPABASE_URL}/auth/v1'
+SUPABASE_AUTH_REDIRECT_URL = os.environ.get('SUPABASE_AUTH_REDIRECT_URL', 'http://localhost:5353')
+SUPABASE_STORAGE_BUCKET = os.environ.get('SUPABASE_STORAGE_BUCKET', 'ir-profile-photos')
+SUPABASE_AUTH_ENABLED = bool(SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY)
+ALLOW_LEGACY_AUTH = os.environ.get(
+    'ALLOW_LEGACY_AUTH', 'false' if SUPABASE_AUTH_ENABLED else 'true',
+).lower() in {'1', 'true', 'yes'}
+
+REST_FRAMEWORK['DEFAULT_AUTHENTICATION_CLASSES'].insert(
+    0, 'coredata.authentication.SupabaseJWTAuthentication',
+)
+if os.environ.get('SUPABASE_STORAGE_ENABLED', 'false').lower() in {'1', 'true', 'yes'}:
+    if not SUPABASE_URL or not SUPABASE_SECRET_KEY:
+        raise ImproperlyConfigured('Supabase Storage necesita URL y clave secreta del servidor.')
+    STORAGES = {
+        'default': {'BACKEND': 'coredata.storage.SupabaseStorage'},
+        'staticfiles': {'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage'},
+    }

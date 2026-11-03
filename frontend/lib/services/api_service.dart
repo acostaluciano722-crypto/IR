@@ -3,12 +3,16 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:supabase_flutter/supabase_flutter.dart';
+
+import 'app_auth.dart';
 
 class ApiService {
   ApiService({String? baseUrl}) : baseUrl = baseUrl ?? _defaultBaseUrl;
 
   final String baseUrl;
   String? token;
+  bool get usesSupabase => AppAuth.enabled;
 
   static const _configuredBaseUrl = String.fromEnvironment('API_BASE_URL');
 
@@ -21,6 +25,31 @@ class ApiService {
   }
 
   Future<Map<String, dynamic>> login(String username, String password) async {
+    if (usesSupabase) {
+      try {
+        await AppAuth.client!.auth
+            .signInWithPassword(email: username.trim(), password: password);
+        return await getCurrentUser();
+      } on AuthException catch (error) {
+        if (error.code == 'invalid_credentials') {
+          final response = await _post(
+              Uri.parse('$baseUrl/auth/legacy-migrate/'),
+              headers: {'Content-Type': 'application/json'},
+              body: jsonEncode({'username': username, 'password': password}));
+          if (response.statusCode == 202) {
+            final result = _decode(response);
+            try {
+              await resendConfirmation(result['confirmation_email'].toString());
+            } on ApiException {
+              throw EmailConfirmationRequired(
+                  'Tu cuenta está vinculada. Solicita de nuevo el correo de confirmación.');
+            }
+            throw EmailConfirmationRequired(result['detail'].toString());
+          }
+        }
+        throw ApiException(AppAuth.errorMessage(error));
+      }
+    }
     final response = await _post(
       Uri.parse('$baseUrl/auth/login/'),
       headers: {'Content-Type': 'application/json'},
@@ -46,6 +75,28 @@ class ApiService {
     String vehicleType = '',
     String vehiclePlate = '',
   }) async {
+    if (usesSupabase) {
+      try {
+        final result = await AppAuth.client!.auth.signUp(
+            email: identifier.trim(),
+            password: password,
+            emailRedirectTo: AppAuth.redirectUrl,
+            data: {
+              'full_name': name,
+              'ir_onboarding': {
+                'name': name,
+                'role': role,
+              },
+            });
+        if (result.session == null) {
+          throw EmailConfirmationRequired(
+              'Revisa tu correo y confirma tu cuenta para continuar.');
+        }
+        return await getCurrentUser();
+      } on AuthException catch (error) {
+        throw ApiException(AppAuth.errorMessage(error));
+      }
+    }
     final response = await _post(
       Uri.parse('$baseUrl/auth/register/'),
       headers: {'Content-Type': 'application/json'},
@@ -113,9 +164,11 @@ class ApiService {
     required Uint8List bytes,
     required String filename,
   }) async {
-    final request = http.MultipartRequest('POST', Uri.parse('$baseUrl/profile/photo/'))
-      ..headers.addAll(_headers)
-      ..files.add(http.MultipartFile.fromBytes('photo', bytes, filename: filename));
+    final request =
+        http.MultipartRequest('POST', Uri.parse('$baseUrl/profile/photo/'))
+          ..headers.addAll(_headers)
+          ..files.add(
+              http.MultipartFile.fromBytes('photo', bytes, filename: filename));
     final response = await _request(() async {
       final streamed = await request.send();
       return http.Response.fromStream(streamed);
@@ -149,7 +202,8 @@ class ApiService {
     final response = await _get(uri, headers: _headers);
     final data = _decode(response);
     if (response.statusCode != 200) {
-      throw ApiException(_errorMessage(data, 'No se pudieron cargar los vehículos cercanos.'));
+      throw ApiException(
+          _errorMessage(data, 'No se pudieron cargar los vehículos cercanos.'));
     }
     return (data as List).cast<Map<String, dynamic>>();
   }
@@ -165,7 +219,8 @@ class ApiService {
     );
     if (response.statusCode != 200) {
       final data = _decode(response);
-      throw ApiException(_errorMessage(data, 'No se pudo actualizar tu disponibilidad.'));
+      throw ApiException(
+          _errorMessage(data, 'No se pudo actualizar tu disponibilidad.'));
     }
   }
 
@@ -446,7 +501,8 @@ class ApiService {
     );
     final data = _decode(response);
     if (response.statusCode != 200) {
-      throw ApiException(_errorMessage(data, 'No se pudo cargar el historial de cartera.'));
+      throw ApiException(
+          _errorMessage(data, 'No se pudo cargar el historial de cartera.'));
     }
     return (data as List).cast<Map<String, dynamic>>();
   }
@@ -472,10 +528,109 @@ class ApiService {
           {Map<String, String>? headers, Object? body}) =>
       _request(() => http.patch(uri, headers: headers, body: body));
 
-  Map<String, String> get _headers => {
-        'Authorization': 'Token $token',
+  Map<String, String> get _headers {
+    if (usesSupabase) {
+      final accessToken = AppAuth.client!.auth.currentSession?.accessToken;
+      return {
+        if (accessToken != null) 'Authorization': 'Bearer $accessToken',
         'Accept': 'application/json',
       };
+    }
+    return {
+      if (token != null) 'Authorization': 'Token $token',
+      'Accept': 'application/json'
+    };
+  }
+
+  Future<Map<String, dynamic>> getCurrentUser() async {
+    final response =
+        await _get(Uri.parse('$baseUrl/auth/me/'), headers: _headers);
+    final data = _decode(response);
+    if (response.statusCode == 409) {
+      if (data is Map && data['code'] == 'legacy_link_required') {
+        throw LegacyAccountLinkRequiredException();
+      }
+      throw ProfileRequiredException();
+    }
+    if (response.statusCode != 200) {
+      throw ApiException(_errorMessage(data, 'No pudimos cargar tu perfil.'));
+    }
+    return data as Map<String, dynamic>;
+  }
+
+  Future<void> completeProfile(Map<String, dynamic> profile) async {
+    final response = await _post(Uri.parse('$baseUrl/auth/profile/'),
+        headers: {..._headers, 'Content-Type': 'application/json'},
+        body: jsonEncode(profile));
+    if (response.statusCode != 200 && response.statusCode != 201) {
+      if (response.statusCode == 409 &&
+          _decode(response)['code'] == 'legacy_link_required') {
+        throw LegacyAccountLinkRequiredException();
+      }
+      throw ApiException(
+          _errorMessage(_decode(response), 'Revisa los datos del perfil.'));
+    }
+  }
+
+  Future<void> linkLegacyAccount(String password) async {
+    final response = await _post(Uri.parse('$baseUrl/auth/link-legacy/'),
+        headers: {..._headers, 'Content-Type': 'application/json'},
+        body: jsonEncode({'password': password}));
+    if (response.statusCode != 200) {
+      throw ApiException(
+          _errorMessage(_decode(response), 'No pudimos vincular tu cuenta.'));
+    }
+  }
+
+  Future<void> signInWithGoogle() async {
+    final response = await _get(
+        Uri.parse('${AppAuth.supabaseUrl}/auth/v1/settings'),
+        headers: {'apikey': AppAuth.publishableKey});
+    if (response.statusCode != 200) {
+      throw ApiException(
+          'No pudimos comprobar el acceso con Google. Intenta de nuevo.');
+    }
+    final settings = _decode(response);
+    if (settings is! Map ||
+        settings['external'] is! Map ||
+        settings['external']['google'] != true) {
+      throw ApiException(
+          'El acceso con Google aún no está disponible. Usa tu correo.');
+    }
+    try {
+      final opened = await AppAuth.client!.auth.signInWithOAuth(
+          OAuthProvider.google,
+          redirectTo: AppAuth.redirectUrl);
+      if (!opened) throw ApiException('No pudimos abrir el acceso de Google.');
+    } on AuthException catch (error) {
+      throw ApiException(AppAuth.errorMessage(error));
+    }
+  }
+
+  Future<void> resetPassword(String email) async {
+    try {
+      await AppAuth.client!.auth
+          .resetPasswordForEmail(email.trim(), redirectTo: AppAuth.redirectUrl);
+    } on AuthException catch (error) {
+      throw ApiException(AppAuth.errorMessage(error));
+    }
+  }
+
+  Future<void> resendConfirmation(String email) async {
+    try {
+      await AppAuth.client!.auth.resend(
+          type: OtpType.signup,
+          email: email.trim(),
+          emailRedirectTo: AppAuth.redirectUrl);
+    } on AuthException catch (error) {
+      throw ApiException(AppAuth.errorMessage(error));
+    }
+  }
+
+  Future<void> signOut() async {
+    if (usesSupabase) await AppAuth.client!.auth.signOut();
+    token = null;
+  }
 
   dynamic _decode(http.Response response) {
     if (response.body.isEmpty) return <String, dynamic>{};
@@ -522,3 +677,13 @@ class ApiException implements Exception {
   @override
   String toString() => message;
 }
+
+class EmailConfirmationRequired extends ApiException {
+  EmailConfirmationRequired(super.message);
+}
+
+class ProfileRequiredException extends ApiException {
+  ProfileRequiredException() : super('Completa tu perfil para continuar.');
+}
+
+class LegacyAccountLinkRequiredException extends ProfileRequiredException {}

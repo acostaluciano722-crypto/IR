@@ -6,7 +6,7 @@ import time
 
 
 def serve():
-    if not os.environ.get('DB_PASSWORD'):
+    if not os.environ.get('DB_PASSWORD') and not os.environ.get('DATABASE_URL'):
         raise SystemExit('Falta DB_PASSWORD. Ejecuta run_docker.ps1 o configura .env.')
 
     import django
