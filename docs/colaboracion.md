@@ -10,7 +10,8 @@ El proyecto compartido es [IR: APP DE MOVILIDAD](https://supabase.com/dashboard/
 | Acceso de la app | Supabase Auth | Correo, sesiones y recuperación; Google requiere configurar su cliente OAuth. |
 | Fotos nuevas de perfil | Supabase Storage, bucket privado `ir-profile-photos` | Django autoriza y firma el acceso a las fotos. |
 | Código Flutter, Django y migraciones | [Repositorio IR](https://github.com/acostaluciano722-crypto/IR) | Cambios mediante Git y ramas. |
-| Django, Redis y Celery | Docker en el equipo de cada desarrollador | Cada PC puede ejecutar la API usando la base compartida, sin depender del otro PC. |
+| Plantillas de comprobación facial | Supabase Database, tabla privada y cifrada | Los backends del equipo necesitan la misma clave de cifrado facial. |
+| Django, Redis, Celery y DeepFace | Docker en el equipo de cada desarrollador | Cada PC puede ejecutar la API usando la base compartida, sin depender del otro PC. |
 
 Supabase aloja los datos y servicios anteriores. Para una API y una app públicas disponibles las 24 horas se necesita desplegar además los contenedores del backend y el frontend en un servicio de alojamiento.
 
@@ -45,7 +46,7 @@ Ser integrante del equipo de Supabase da acceso al proyecto de desarrollo. Para 
 ## Ejecutar la app en tu equipo
 
 1. Instala Docker Desktop y Flutter. Inicia Docker Desktop.
-2. Copia `.env.supabase.example` a `.env`. Completa las credenciales del backend mediante el canal privado del equipo: conexión del rol `ir_backend`, claves publicable y secreta de Supabase, una clave privada Django y configuración necesaria de Maps. Mantén `DB_SCHEMA=ir`, SSL y el pooler de sesiones del puerto `5432`. `.env` está excluido de Git.
+2. Copia `.env.supabase.example` a `.env`. Completa las credenciales del backend mediante el canal privado del equipo: conexión del rol `ir_backend`, claves publicable y secreta de Supabase, una clave privada Django y configuración necesaria de Maps. Mantén `DB_SCHEMA=ir`, SSL y el pooler de sesiones del puerto `5432`. Añade **la misma `FACE_TEMPLATE_KEY` que usa el equipo**, un `FACE_SERVICE_TOKEN` para la pareja Django/DeepFace local y `FACE_VERIFICATION_REQUIRED=true`. No generes una clave de cifrado distinta para la misma base. `.env` está excluido de Git.
 3. Ejecuta el backend y los procesos de tareas:
 
 ```powershell
@@ -61,6 +62,8 @@ flutter run -d chrome --web-port 5353
 ```
 
 También puedes usar la configuración **IR Web · Supabase compartido** de VS Code. La clave publicable del frontend ya está incluida en el código; las credenciales secretas se usan exclusivamente en el backend.
+
+La primera puesta en marcha de DeepFace descarga los modelos a un volumen Docker y puede tardar. El acceso nuevo o vencido pedirá documento y selfie; consulta [la comprobación facial](facial-verification.md) para los datos que conserva, su vigencia y las pruebas. La cámara web funciona en `localhost` o mediante HTTPS.
 
 La API se sirve en `http://127.0.0.1:8000/api` de **tu propio PC**. Flutter Android Emulator utiliza `10.0.2.2:8000`. Para un teléfono físico, configura `API_BASE_URL` con la IP del PC que está ejecutando Django. Todos esos clientes usan el mismo proyecto Supabase alojado.
 

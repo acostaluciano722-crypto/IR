@@ -3,16 +3,24 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'app_auth.dart';
+import 'face_verification.dart';
 
 class ApiService {
-  ApiService({String? baseUrl}) : baseUrl = baseUrl ?? _defaultBaseUrl;
+  ApiService({String? baseUrl, http.Client? client})
+      : baseUrl = baseUrl ?? _defaultBaseUrl,
+        _client = client;
 
   final String baseUrl;
+  final http.Client? _client;
   String? token;
   bool get usesSupabase => AppAuth.enabled;
+  static final _faceGateEvents = StreamController<void>.broadcast();
+  static DateTime? _lastFaceGateEvent;
+  Stream<void> get faceVerificationRequiredEvents => _faceGateEvents.stream;
 
   static const _configuredBaseUrl = String.fromEnvironment('API_BASE_URL');
 
@@ -180,11 +188,125 @@ class ApiService {
     return data['photo_url']?.toString();
   }
 
+  Future<FaceVerificationStatus> getFaceVerificationStatus() async {
+    final response =
+        await _get(Uri.parse('$baseUrl/profile/face/'), headers: _headers);
+    return FaceVerificationStatus.fromJson(_faceResponse(response));
+  }
+
+  Future<FaceVerificationStatus> enrollFace({
+    required Uint8List documentBytes,
+    required String documentFilename,
+    required Uint8List selfieBytes,
+    required String selfieFilename,
+    required String consentVersion,
+  }) async {
+    final challenge = await _faceChallenge('enroll');
+    final request = http.MultipartRequest(
+        'POST', Uri.parse('$baseUrl/profile/face/enroll/'))
+      ..headers.addAll(_headers)
+      ..fields.addAll({
+        'consent': 'true',
+        'consent_version': consentVersion,
+        'challenge_token': challenge,
+      })
+      ..files.addAll([
+        _faceImage('document', documentBytes, documentFilename),
+        _faceImage('selfie', selfieBytes, selfieFilename),
+      ]);
+    return FaceVerificationStatus.fromJson(
+        _faceResponse(await _sendFaceImage(request)));
+  }
+
+  Future<FaceVerificationResult> verifyFace({
+    required Uint8List selfieBytes,
+    required String selfieFilename,
+  }) async {
+    final challenge = await _faceChallenge('verify');
+    final request = http.MultipartRequest(
+        'POST', Uri.parse('$baseUrl/profile/face/verify/'))
+      ..headers.addAll(_headers)
+      ..fields['challenge_token'] = challenge
+      ..files.add(_faceImage('selfie', selfieBytes, selfieFilename));
+    return FaceVerificationResult.fromJson(
+        _faceResponse(await _sendFaceImage(request)));
+  }
+
+  Future<void> revokeFaceEnrollment() async {
+    final response =
+        await _delete(Uri.parse('$baseUrl/profile/face/'), headers: _headers);
+    if (response.statusCode != 204) _faceResponse(response);
+    _lastFaceGateEvent = DateTime.now();
+    _faceGateEvents.add(null);
+  }
+
+  Future<String> _faceChallenge(String purpose) async {
+    final response = await _post(
+      Uri.parse('$baseUrl/profile/face/challenge/'),
+      headers: {..._headers, 'Content-Type': 'application/json'},
+      body: jsonEncode({'purpose': purpose}),
+    );
+    final data = _faceResponse(response);
+    final challenge = data['challenge_token'];
+    if (challenge is! String || challenge.isEmpty) {
+      throw FaceVerificationException(
+          'No pudimos preparar la comprobación. Intenta de nuevo.',
+          code: 'invalid_challenge');
+    }
+    return challenge;
+  }
+
+  http.MultipartFile _faceImage(
+      String field, Uint8List bytes, String filename) {
+    var subtype = 'jpeg';
+    if (bytes.length >= 4 &&
+        bytes[0] == 0x89 &&
+        bytes[1] == 0x50 &&
+        bytes[2] == 0x4e &&
+        bytes[3] == 0x47) {
+      subtype = 'png';
+    } else if (bytes.length >= 12 &&
+        ascii.decode(bytes.sublist(0, 4), allowInvalid: true) == 'RIFF' &&
+        ascii.decode(bytes.sublist(8, 12), allowInvalid: true) == 'WEBP') {
+      subtype = 'webp';
+    }
+    return http.MultipartFile.fromBytes(field, bytes,
+        filename: filename, contentType: MediaType('image', subtype));
+  }
+
+  Future<http.Response> _sendFaceImage(http.MultipartRequest request) async {
+    try {
+      return await (() async {
+        final streamed = await (_client?.send(request) ?? request.send());
+        return http.Response.fromStream(streamed);
+      })()
+          .timeout(const Duration(seconds: 75));
+    } on TimeoutException {
+      throw FaceVerificationException(
+          'La comprobación está tardando más de lo esperado. Vuelve a intentarlo.',
+          code: 'service_unavailable');
+    } on http.ClientException {
+      throw FaceVerificationException(
+          'No hay conexión con IR. Revisa tu conexión e intenta de nuevo.',
+          code: 'service_unavailable');
+    }
+  }
+
+  Map<String, dynamic> _faceResponse(http.Response response) {
+    final data = _decode(response);
+    if (response.statusCode >= 200 &&
+        response.statusCode < 300 &&
+        data is Map) {
+      return Map<String, dynamic>.from(data);
+    }
+    throw FaceVerificationException(
+        _errorMessage(data, 'No pudimos completar la comprobación facial.'),
+        code: data is Map ? data['code']?.toString() : null);
+  }
+
   Future<void> deleteProfilePhoto() async {
-    final response = await _request(() => http.delete(
-          Uri.parse('$baseUrl/profile/photo/'),
-          headers: _headers,
-        ));
+    final response =
+        await _delete(Uri.parse('$baseUrl/profile/photo/'), headers: _headers);
     if (response.statusCode != 204) {
       final data = _decode(response);
       throw ApiException(_errorMessage(data, 'No se pudo quitar la foto.'));
@@ -509,7 +631,19 @@ class ApiService {
 
   Future<http.Response> _request(Future<http.Response> Function() send) async {
     try {
-      return await send().timeout(const Duration(seconds: 20));
+      final response = await send().timeout(const Duration(seconds: 20));
+      if (response.statusCode == 403) {
+        final data = _decode(response);
+        final now = DateTime.now();
+        if (data is Map &&
+            data['code'] == 'face_verification_required' &&
+            (_lastFaceGateEvent == null ||
+                now.difference(_lastFaceGateEvent!).inMilliseconds >= 500)) {
+          _lastFaceGateEvent = now;
+          _faceGateEvents.add(null);
+        }
+      }
+      return response;
     } on TimeoutException {
       throw ApiException(
           'IR tardó demasiado en responder. Inténtalo de nuevo.');
@@ -520,13 +654,23 @@ class ApiService {
   }
 
   Future<http.Response> _get(Uri uri, {Map<String, String>? headers}) =>
-      _request(() => http.get(uri, headers: headers));
+      _request(() =>
+          _client?.get(uri, headers: headers) ??
+          http.get(uri, headers: headers));
   Future<http.Response> _post(Uri uri,
           {Map<String, String>? headers, Object? body}) =>
-      _request(() => http.post(uri, headers: headers, body: body));
+      _request(() =>
+          _client?.post(uri, headers: headers, body: body) ??
+          http.post(uri, headers: headers, body: body));
   Future<http.Response> _patch(Uri uri,
           {Map<String, String>? headers, Object? body}) =>
-      _request(() => http.patch(uri, headers: headers, body: body));
+      _request(() =>
+          _client?.patch(uri, headers: headers, body: body) ??
+          http.patch(uri, headers: headers, body: body));
+  Future<http.Response> _delete(Uri uri, {Map<String, String>? headers}) =>
+      _request(() =>
+          _client?.delete(uri, headers: headers) ??
+          http.delete(uri, headers: headers));
 
   Map<String, String> get _headers {
     if (usesSupabase) {
@@ -583,17 +727,7 @@ class ApiService {
   }
 
   Future<void> signInWithGoogle() async {
-    final response = await _get(
-        Uri.parse('${AppAuth.supabaseUrl}/auth/v1/settings'),
-        headers: {'apikey': AppAuth.publishableKey});
-    if (response.statusCode != 200) {
-      throw ApiException(
-          'No pudimos comprobar el acceso con Google. Intenta de nuevo.');
-    }
-    final settings = _decode(response);
-    if (settings is! Map ||
-        settings['external'] is! Map ||
-        settings['external']['google'] != true) {
+    if (!await isGoogleSignInAvailable()) {
       throw ApiException(
           'El acceso con Google aún no está disponible. Usa tu correo.');
     }
@@ -605,6 +739,20 @@ class ApiService {
     } on AuthException catch (error) {
       throw ApiException(AppAuth.errorMessage(error));
     }
+  }
+
+  Future<bool> isGoogleSignInAvailable() async {
+    final response = await _get(
+        Uri.parse('${AppAuth.supabaseUrl}/auth/v1/settings'),
+        headers: {'apikey': AppAuth.publishableKey});
+    if (response.statusCode != 200) {
+      throw ApiException(
+          'No pudimos comprobar el acceso con Google. Intenta de nuevo.');
+    }
+    final settings = _decode(response);
+    return settings is Map &&
+        settings['external'] is Map &&
+        settings['external']['google'] == true;
   }
 
   Future<void> resetPassword(String email) async {
@@ -680,6 +828,11 @@ class ApiException implements Exception {
 
 class EmailConfirmationRequired extends ApiException {
   EmailConfirmationRequired(super.message);
+}
+
+class FaceVerificationException extends ApiException {
+  FaceVerificationException(super.message, {this.code});
+  final String? code;
 }
 
 class ProfileRequiredException extends ApiException {

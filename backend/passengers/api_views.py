@@ -225,6 +225,12 @@ class PassengerMeView(APIView):
 
 class ProfilePhotoView(APIView):
     def post(self, request):
+        from coredata.models import FaceEnrollment
+        if settings.FACE_VERIFICATION_REQUIRED or FaceEnrollment.objects.filter(user_id=request.user.pk).exists():
+            return Response({
+                'code': 'verified_selfie_required',
+                'detail': 'Actualiza tu foto desde la comprobación facial con una nueva selfie.',
+            }, status=status.HTTP_403_FORBIDDEN)
         from coredata.serializers import ProfilePhotoSerializer
         serializer = ProfilePhotoSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)

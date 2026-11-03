@@ -17,6 +17,8 @@ DATABASES = {'default': {
 }}
 SUPABASE_AUTH_ENABLED = False
 ALLOW_LEGACY_AUTH = True
+FACE_VERIFICATION_REQUIRED = False
+FACE_SERVICE_URL = ''
 STORAGES = {
     'default': {'BACKEND': 'django.core.files.storage.FileSystemStorage'},
     'staticfiles': {'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage'},

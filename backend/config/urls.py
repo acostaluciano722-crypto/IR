@@ -10,6 +10,7 @@ from django.conf.urls.static import static
 from django.views.decorators.http import require_GET
 from redis.exceptions import RedisError
 from coredata.auth_views import CompleteProfileView, CurrentUserView, LegacyPasswordMigrationView, LinkLegacyAccountView
+from coredata.face_views import FaceChallengeView, FaceEnrollView, FaceStatusView, FaceVerifyView
 
 
 REQUIRED_API_TABLES = {
@@ -79,6 +80,10 @@ urlpatterns = [
     path('api/auth/profile/', CompleteProfileView.as_view(), name='auth-profile'),
     path('api/auth/legacy-migrate/', LegacyPasswordMigrationView.as_view(), name='auth-legacy-migrate'),
     path('api/auth/link-legacy/', LinkLegacyAccountView.as_view(), name='auth-link-legacy'),
+    path('api/profile/face/', FaceStatusView.as_view(), name='face-status'),
+    path('api/profile/face/challenge/', FaceChallengeView.as_view(), name='face-challenge'),
+    path('api/profile/face/enroll/', FaceEnrollView.as_view(), name='face-enroll'),
+    path('api/profile/face/verify/', FaceVerifyView.as_view(), name='face-verify'),
     path('api/', include('passengers.urls')),
     path('api/driver/', include('drivers.urls')),
     path('', api_status, name='api-status'),

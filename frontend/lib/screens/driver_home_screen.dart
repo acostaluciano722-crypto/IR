@@ -13,6 +13,7 @@ import '../ui/ir_motion.dart';
 import '../ui/ir_auth_layout.dart';
 import '../ui/ir_format.dart';
 import '../ui/ir_map_layout.dart';
+import '../ui/ir_mobility_navigation.dart';
 import '../ui/ir_map_route.dart';
 import '../ui/ir_map_symbols.dart';
 import 'welcome_screen.dart';
@@ -21,6 +22,7 @@ import 'bonus_screen.dart';
 import 'points_screen.dart';
 import 'role_section_screen.dart';
 import 'profile_screen.dart';
+import 'face_verification_screen.dart';
 
 class DriverHomeScreen extends StatefulWidget {
   const DriverHomeScreen({super.key, required this.api, required this.user});
@@ -33,9 +35,9 @@ class DriverHomeScreen extends StatefulWidget {
 
 class _DriverHomeScreenState extends State<DriverHomeScreen> {
   final _scaffoldKey = GlobalKey<ScaffoldState>();
+  final _desktopScrollController = ScrollController();
   String? _loadError;
   bool _changingStatus = false;
-  bool _sheetAtTop = false;
   String _status = 'offline';
   int _walletBalance = 0;
   int _reservedBalance = 0;
@@ -102,6 +104,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
 
   @override
   void dispose() {
+    _desktopScrollController.dispose();
     _refreshTimer?.cancel();
     _countdownTimer?.cancel();
     _presenceTimer?.cancel();
@@ -358,8 +361,8 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
   CameraUpdate _cameraForPoints(Iterable<LatLng> points,
           {double maxZoom = 18}) =>
       IrMapRoute.overview(points,
-          viewport: IrMapRoute.viewport(context),
-          obscured: IrMapRoute.padding(context,
+          viewport: IrMobilityLayout.mapViewport(context),
+          obscured: IrMobilityLayout.mapPadding(context,
               _mapSheetExtent ?? IrMapLayout.of(context).driverResting),
           maxZoom: maxZoom);
 
@@ -582,175 +585,203 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
     }
   }
 
+  Widget _driverPanel(IrMapLayout layout, ScrollController controller,
+          {bool desktop = false}) =>
+      PointerInterceptor(
+        child: Container(
+          decoration: BoxDecoration(
+            color: context.irColors.surface,
+            borderRadius: desktop
+                ? BorderRadius.zero
+                : const BorderRadius.vertical(top: Radius.circular(20)),
+            border: desktop
+                ? Border(right: BorderSide(color: context.irColors.border))
+                : Border(top: BorderSide(color: context.irColors.border)),
+          ),
+          child: ListView(
+            controller: controller,
+            padding: EdgeInsets.fromLTRB(layout.horizontalPadding,
+                desktop ? 24 : 12, layout.horizontalPadding, 24),
+            children: [
+              if (!desktop) ...[
+                Center(
+                    child: Container(
+                        width: 40,
+                        height: 4,
+                        decoration: BoxDecoration(
+                            color: context.irColors.border,
+                            borderRadius: BorderRadius.circular(4)))),
+                const SizedBox(height: 16),
+              ],
+              if (_loadError != null) ...[
+                IrInlineMessage(
+                    message: _loadError!, error: true, onRetry: _loadProfile),
+                const SizedBox(height: 16),
+              ],
+              _DriverStatusPill(
+                  status: _status,
+                  onTap: _changingStatus ? null : _toggleStatus),
+              const SizedBox(height: 24),
+              Text(
+                  _activeRideData != null
+                      ? 'Tu viaje en curso'
+                      : 'Solicitudes cercanas',
+                  style: TextStyle(
+                      color: context.irColors.text,
+                      fontSize: 19,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: -.3)),
+              const SizedBox(height: 12),
+              _driverContent(),
+              const SizedBox(height: 24),
+              InkWell(
+                borderRadius: BorderRadius.circular(12),
+                onTap: () => _openDriverSection(context, 'wallet'),
+                child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    child: Row(children: [
+                      Icon(Icons.account_balance_wallet_outlined,
+                          color: context.irColors.muted, size: 23),
+                      const SizedBox(width: 12),
+                      Expanded(
+                          child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                            Text('Bolsa IR disponible',
+                                style: TextStyle(
+                                    color: context.irColors.muted,
+                                    fontSize: 13)),
+                            const SizedBox(height: 3),
+                            Text(irMoney(_walletBalance - _reservedBalance),
+                                style: TextStyle(
+                                    color: context.irColors.text,
+                                    fontSize: 21,
+                                    fontWeight: FontWeight.w700)),
+                          ])),
+                      Icon(Icons.chevron_right, color: context.irColors.muted),
+                    ])),
+              ),
+              Divider(height: 1, color: context.irColors.border),
+              const SizedBox(height: 20),
+              _DriverPointsPanel(points: _points, tier: _tier),
+            ],
+          ),
+        ),
+      );
+
+  Widget _driverMap(IrMapLayout layout, {required bool desktop}) =>
+      Stack(children: [
+        Positioned.fill(
+            child: GoogleMap(
+          initialCameraPosition: const CameraPosition(
+              target: LatLng(10.391, -75.4794), zoom: 13.8),
+          myLocationEnabled: false,
+          myLocationButtonEnabled: false,
+          zoomControlsEnabled: false,
+          onMapCreated: _onDriverMapCreated,
+          webGestureHandling: WebGestureHandling.greedy,
+          scrollGesturesEnabled: true,
+          zoomGesturesEnabled: true,
+          rotateGesturesEnabled: true,
+          tiltGesturesEnabled: true,
+          markers: _driverMarkers,
+          polylines: _driverRouteLines,
+          style: context.irColors.light ? null : _driverMapStyle,
+        )),
+        Positioned(
+            top: 16,
+            right: 16,
+            child: PointerInterceptor(
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+              if (_overviewPoints.length >= 2) ...[
+                IrMapAction(
+                    icon: Icons.route_outlined,
+                    label: 'Ver recorrido completo',
+                    onPressed: _showRouteOverview),
+                const SizedBox(width: 8),
+              ],
+              IrMapAction(
+                  icon: Icons.my_location,
+                  label: 'Centrar en mi ubicación',
+                  onPressed: _recenterDriverMap),
+            ]))),
+        if (!desktop)
+          Positioned.fill(
+              child: NotificationListener<DraggableScrollableNotification>(
+                  onNotification: (notification) {
+                    _mapSheetExtent = notification.extent;
+                    return false;
+                  },
+                  child: Align(
+                      alignment: Alignment.bottomCenter,
+                      child: DraggableScrollableSheet(
+                        controller: _driverSheetController,
+                        expand: false,
+                        initialChildSize: layout.driverResting,
+                        minChildSize: layout.driverMinimum,
+                        maxChildSize: 1,
+                        snapSizes: layout.driverSnapSizes,
+                        snap: true,
+                        builder: (context, controller) =>
+                            _driverPanel(layout, controller),
+                      )))),
+      ]);
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
       return Theme(
           data: irCurrentTheme(),
-          child: Scaffold(
-              body: IrEditorialBackdrop(
-                  child: const Center(
-                      child: IrLoadingState(
-                          label: 'Preparando tu espacio de conductor')))));
+          child: const Scaffold(
+              body: Center(
+                  child: IrLoadingState(
+                      label: 'Preparando tu espacio de conductor'))));
     }
-
-    final hasActiveRide = _activeRideData != null;
     final layout = IrMapLayout.of(context);
-
+    final desktop = IrMobilityLayout.expanded(context);
     return Theme(
-      data: irCurrentTheme(),
-      child: Scaffold(
-        key: _scaffoldKey,
-        drawer: Drawer(
-            width: MediaQuery.sizeOf(context).width.clamp(0, 340).toDouble(),
-            child: PointerInterceptor(
-              child: _DriverSideBar(
-                  user: widget.user,
-                  rating: _rating,
-                  ratingCount: _ratingCount,
-                  totalRides: _totalRides,
-                  photoUrl: _photoUrl,
-                  onClose: () => _scaffoldKey.currentState?.closeDrawer(),
-                  onSectionSelected: (value) {
-                    _scaffoldKey.currentState?.closeDrawer();
-                    _openDriverSection(context, value);
-                  }),
-            )),
-        backgroundColor: context.irColors.surface,
-        body: SafeArea(
-          bottom: false,
-          child: Stack(children: [
-            if (hasActiveRide)
-              Positioned.fill(
-                  child: GoogleMap(
-                initialCameraPosition: const CameraPosition(
-                    target: LatLng(10.391, -75.4794), zoom: 13.8),
-                myLocationEnabled: false,
-                myLocationButtonEnabled: false,
-                zoomControlsEnabled: false,
-                onMapCreated: _onDriverMapCreated,
-                webGestureHandling: WebGestureHandling.greedy,
-                scrollGesturesEnabled: true,
-                zoomGesturesEnabled: true,
-                rotateGesturesEnabled: true,
-                tiltGesturesEnabled: true,
-                markers: _driverMarkers,
-                polylines: _driverRouteLines,
-                style: context.irColors.light ? null : _driverMapStyle,
-              )),
-            if (hasActiveRide)
-              Positioned(
-                  top: 12,
-                  right: 16,
-                  child: PointerInterceptor(
-                    child: Row(mainAxisSize: MainAxisSize.min, children: [
-                      if (_overviewPoints.length >= 2) ...[
-                        IrMapAction(
-                            icon: Icons.route_outlined,
-                            label: 'Ver recorrido completo',
-                            onPressed: _showRouteOverview),
-                        const SizedBox(width: 8),
-                      ],
-                      IrMapAction(
-                          icon: Icons.my_location,
-                          label: 'Centrar en mi ubicación',
-                          onPressed: _recenterDriverMap),
-                    ]),
-                  )),
-            Positioned.fill(
-              child: NotificationListener<DraggableScrollableNotification>(
-                  onNotification: (notification) {
-                    _mapSheetExtent = notification.extent;
-                    final atTop = notification.extent >= .88;
-                    if (atTop != _sheetAtTop && mounted) {
-                      setState(() => _sheetAtTop = atTop);
-                    }
-                    return false;
-                  },
-                  child: Align(
-                    alignment: Alignment.bottomCenter,
-                    child: DraggableScrollableSheet(
-                        controller: _driverSheetController,
-                        expand: false,
-                        initialChildSize:
-                            hasActiveRide ? layout.driverResting : 1.0,
-                        minChildSize:
-                            hasActiveRide ? layout.driverMinimum : 1.0,
-                        maxChildSize: 1.0,
-                        snapSizes: hasActiveRide
-                            ? layout.driverSnapSizes
-                            : const [1.0],
-                        snap: true,
-                        builder: (context, controller) => Align(
-                            alignment: Alignment.bottomCenter,
-                            child: ConstrainedBox(
-                                constraints: BoxConstraints(
-                                    maxWidth: layout.sheetMaxWidth),
-                                child: PointerInterceptor(
-                                    child: Container(
-                                  decoration: BoxDecoration(
-                                      color: context.irColors.surface,
-                                      borderRadius: BorderRadius.vertical(
-                                          top: Radius.circular(34)),
-                                      border: Border(
-                                          top: BorderSide(
-                                              color: context.irColors.border))),
-                                  child: ListView(
-                                    controller: controller,
-                                    padding: EdgeInsets.fromLTRB(
-                                        layout.horizontalPadding,
-                                        hasActiveRide && !_sheetAtTop ? 10 : 84,
-                                        layout.horizontalPadding,
-                                        24 +
-                                            MediaQuery.viewPaddingOf(context)
-                                                .bottom),
-                                    children: [
-                                      Center(
-                                          child: Container(
-                                              width: 44,
-                                              height: 5,
-                                              decoration: BoxDecoration(
-                                                  color:
-                                                      context.irColors.border,
-                                                  borderRadius:
-                                                      BorderRadius.circular(
-                                                          4)))),
-                                      const SizedBox(height: 14),
-                                      if (_loadError != null) ...[
-                                        IrInlineMessage(
-                                            message: _loadError!,
-                                            error: true,
-                                            onRetry: _loadProfile),
-                                        const SizedBox(height: 16)
-                                      ],
-                                      _DriverPointsPanel(
-                                          points: _points, tier: _tier),
-                                      const SizedBox(height: 16),
-                                      _DriverStatusPill(
-                                          status: _status,
-                                          onTap: _changingStatus
-                                              ? null
-                                              : _toggleStatus),
-                                      const SizedBox(height: 16),
-                                      _driverContent(),
-                                    ],
-                                  ),
-                                ))))),
-                  )),
-            ),
-            Positioned(
-                top: 12,
-                left: 16,
-                child: PointerInterceptor(
-                  child: IrMapAction(
-                      icon: Icons.menu,
-                      label: 'Abrir menú',
-                      onPressed: () => _scaffoldKey.currentState?.openDrawer()),
-                )),
-          ]),
-        ),
-      ),
-    );
+        data: irCurrentTheme(),
+        child: Scaffold(
+          key: _scaffoldKey,
+          appBar: IrMobilityAppBar(
+              title: 'Conducir',
+              photoUrl: _photoUrl,
+              onMenu: () => _scaffoldKey.currentState?.openDrawer(),
+              onProfile: () => _openDriverSection(context, 'profile')),
+          drawer: Drawer(
+              width: MediaQuery.sizeOf(context).width.clamp(0, 340).toDouble(),
+              child: PointerInterceptor(
+                  child: _DriverSideBar(
+                      user: widget.user,
+                      rating: _rating,
+                      ratingCount: _ratingCount,
+                      totalRides: _totalRides,
+                      photoUrl: _photoUrl,
+                      onClose: () => _scaffoldKey.currentState?.closeDrawer(),
+                      onSectionSelected: (value) {
+                        _scaffoldKey.currentState?.closeDrawer();
+                        _openDriverSection(context, value);
+                      }))),
+          backgroundColor: context.irColors.surface,
+          bottomNavigationBar: desktop || IrMobilityLayout.keyboardOpen(context)
+              ? null
+              : IrMobilityBottomNavigation(
+                  driver: true,
+                  onSelected: (value) => _openDriverSection(context, value)),
+          body: desktop
+              ? Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                  IrMobilityRail(
+                      driver: true,
+                      onSelected: (value) =>
+                          _openDriverSection(context, value)),
+                  SizedBox(
+                      width: IrMobilityLayout.panelWidth,
+                      child: _driverPanel(layout, _desktopScrollController,
+                          desktop: true)),
+                  Expanded(child: _driverMap(layout, desktop: true)),
+                ])
+              : _driverMap(layout, desktop: false),
+        ));
   }
 
   Set<Marker> get _driverMarkers {
@@ -863,11 +894,12 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
 
   Future<void> _openDriverSection(BuildContext context, String value) async {
     if (value == 'logout') {
-      try { await widget.api.signOut(); }
-      catch (_) {
+      try {
+        await widget.api.signOut();
+      } catch (_) {
         if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('No pudimos cerrar la sesión. Intenta de nuevo.')));
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+              content: Text('No pudimos cerrar la sesión. Intenta de nuevo.')));
         }
         return;
       }
@@ -888,6 +920,17 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
           .then((_) {
         if (mounted) _loadProfile();
       });
+      return;
+    }
+    if (value == 'face') {
+      await Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => FaceVerificationScreen(
+          api: widget.api,
+          onProfileChanged: () {
+            unawaited(_loadProfile());
+          },
+        ),
+      ));
       return;
     }
     if (value == 'profile') {
@@ -1019,75 +1062,118 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
   }
 
   Widget _driverContent() {
-    if (_status == 'offline') {
-      return const Center(
-          child: Text('Estás desconectado. Conéctate para recibir viajes.'));
-    }
     final active = _activeRideCard();
     if (active != null) return active;
+    if (_status == 'offline') {
+      return Padding(
+          padding: const EdgeInsets.symmetric(vertical: 20),
+          child:
+              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Icon(Icons.power_settings_new_rounded,
+                color: context.irColors.muted, size: 28),
+            const SizedBox(height: 12),
+            const Text('Estás desconectado. Conéctate para recibir viajes.',
+                style: TextStyle(height: 1.5)),
+          ]));
+    }
     if (_availableRides.isEmpty) {
-      return const Center(child: Text('Buscando viajes cercanos...'));
+      return Padding(
+          padding: const EdgeInsets.symmetric(vertical: 20),
+          child:
+              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Icon(Icons.radar_rounded, color: context.irColors.muted, size: 30),
+            const SizedBox(height: 12),
+            const Text('Buscando viajes cercanos...',
+                style: TextStyle(fontWeight: FontWeight.w600, height: 1.5)),
+            const SizedBox(height: 6),
+            Text(
+                'Las nuevas solicitudes aparecerán aquí. Mantén tu ubicación activa.',
+                style: TextStyle(color: context.irColors.muted, height: 1.5)),
+          ]));
     }
     return Column(
-      children: _availableRides.map((ride) {
-        final passengerOrigin = _passengerOriginLabel(ride);
-        return Card(
-          margin: const EdgeInsets.symmetric(vertical: 8),
+        children: _availableRides.map((ride) {
+      final passengerOrigin = _passengerOriginLabel(ride);
+      final seconds = (ride['remaining_seconds'] as num? ?? 0).toInt();
+      final remaining =
+          '${seconds ~/ 60}:${(seconds % 60).toString().padLeft(2, '0')}';
+      final ratingCount = (ride['passenger_rating_count'] as num? ?? 0).toInt();
+      final rating = ratingCount == 0
+          ? 'Nuevo en IR'
+          : '${(ride['passenger_rating_average'] as num? ?? 0).toStringAsFixed(1)} / 5';
+      return Card(
+          margin: const EdgeInsets.only(bottom: 16),
           child: Padding(
-            padding: const EdgeInsets.all(18),
-            child:
-                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Row(children: [
-                Container(
-                    width: 40,
-                    height: 40,
-                    decoration: BoxDecoration(
-                        color: IrPalette.accent,
-                        borderRadius: BorderRadius.circular(13)),
-                    child: const Icon(Icons.route,
-                        color: IrPalette.ink, size: 22)),
-                const SizedBox(width: 12),
-                const Expanded(
-                    child: Text('Nueva solicitud',
-                        style: TextStyle(
-                            fontSize: 18, fontWeight: FontWeight.w900))),
-                Text(irMoney(ride['offer_amount']),
-                    textScaler: TextScaler.noScaling,
-                    style: TextStyle(
-                        color: context.irColors.accent,
-                        fontSize: 17,
-                        fontWeight: FontWeight.w900)),
-              ]),
-              const SizedBox(height: 16),
-              Text('De: $passengerOrigin\nA: ${ride['destination']}',
-                  style: const TextStyle(
-                      height: 1.35, fontSize: 16, fontWeight: FontWeight.w800)),
-              const SizedBox(height: 6),
-              Text(
-                  '${ride['passenger_name']} · ${(ride['passenger_rating_count'] as num? ?? 0) == 0 ? 'Nuevo en IR' : '${(ride['passenger_rating_average'] as num? ?? 0).toStringAsFixed(1)} / 5 (${ride['passenger_rating_count']} calificaciones)'}\nPropuesta: ${irMoney(ride['offer_amount'])} · Estimado: ${irMoney(ride['estimated_price'])}\n${ride['distance_km']} km · ${ride['duration_minutes']} min · ${ride['remaining_seconds']} s restantes'),
-              const SizedBox(height: 10),
-              IrResponsiveActions(children: [
-                ElevatedButton.icon(
-                    onPressed: () => _acceptRide(ride['id'] as int),
-                    icon: const Icon(Icons.check),
-                    label: const Text('Aceptar')),
-                OutlinedButton.icon(
-                    onPressed: () => _makeOffer(
-                        ride['id'] as int, _amount(ride['estimated_price'])),
-                    icon: const Icon(Icons.local_offer_outlined),
-                    label: const Text('Contraoferta')),
-              ]),
-              SizedBox(
-                  width: double.infinity,
-                  child: TextButton.icon(
-                      onPressed: () => _rejectRide(ride['id'] as int),
-                      icon: const Icon(Icons.close),
-                      label: const Text('Rechazar'))),
-            ]),
-          ),
-        );
-      }).toList(),
-    );
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Wrap(
+                        spacing: 12,
+                        runSpacing: 8,
+                        alignment: WrapAlignment.spaceBetween,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          Text('Nueva solicitud',
+                              style: TextStyle(
+                                  color: context.irColors.text,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w700)),
+                          Text(irMoney(ride['offer_amount']),
+                              style: TextStyle(
+                                  color: context.irColors.text,
+                                  fontSize: 21,
+                                  fontWeight: FontWeight.w700,
+                                  letterSpacing: -.4)),
+                        ]),
+                    const SizedBox(height: 16),
+                    _RequestRouteLine(
+                        icon: Icons.radio_button_checked,
+                        label: 'Recogida',
+                        value: passengerOrigin),
+                    const SizedBox(height: 12),
+                    _RequestRouteLine(
+                        icon: Icons.location_on_outlined,
+                        label: 'Destino',
+                        value: ride['destination']?.toString() ?? 'Destino'),
+                    const SizedBox(height: 16),
+                    Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(Icons.person_outline,
+                              size: 18, color: context.irColors.muted),
+                          const SizedBox(width: 8),
+                          Expanded(
+                              child: Text('${ride['passenger_name']} · $rating',
+                                  style: TextStyle(
+                                      color: context.irColors.muted,
+                                      height: 1.4))),
+                        ]),
+                    const SizedBox(height: 12),
+                    Wrap(spacing: 16, runSpacing: 8, children: [
+                      Text(
+                          '${ride['distance_km']} km · ${ride['duration_minutes']} min',
+                          style: TextStyle(
+                              color: context.irColors.muted, fontSize: 13)),
+                      Text('Responde en $remaining',
+                          style: TextStyle(
+                              color: context.irColors.muted, fontSize: 13)),
+                    ]),
+                    const SizedBox(height: 16),
+                    IrResponsiveActions(children: [
+                      ElevatedButton(
+                          onPressed: () => _acceptRide(ride['id'] as int),
+                          child: const Text('Aceptar')),
+                      OutlinedButton(
+                          onPressed: () => _makeOffer(ride['id'] as int,
+                              _amount(ride['estimated_price'])),
+                          child: const Text('Contraoferta')),
+                    ]),
+                    TextButton(
+                        onPressed: () => _rejectRide(ride['id'] as int),
+                        child: const Text('Rechazar')),
+                  ])));
+    }).toList());
   }
 
   Widget? _activeRideCard() {
@@ -1393,11 +1479,11 @@ class _DriverSideBar extends StatelessWidget {
     ('history', 'Historial', Icons.history),
     ('support', 'Soporte', Icons.support_agent_outlined),
     ('profile', 'Cuenta', Icons.person_outline),
+    ('face', 'Verificación facial', Icons.face_retouching_natural_outlined),
     ('city', 'Ciudad', Icons.directions_car_outlined),
     ('city_to_city', 'Ciudad a Ciudad', Icons.public_outlined),
     ('wallet', 'Cartera', Icons.account_balance_wallet_outlined),
     ('settings', 'Configuración', Icons.settings_outlined),
-    ('logout', 'Cerrar sesión', Icons.logout),
   ];
 
   @override
@@ -1405,74 +1491,83 @@ class _DriverSideBar extends StatelessWidget {
         color: context.irColors.surface,
         elevation: 0,
         child: SafeArea(
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
-            children: [
-              Row(children: [
-                const Expanded(child: IrBrandLogo(size: 42)),
-                IconButton(
-                    tooltip: 'Cerrar menú',
-                    onPressed: onClose,
-                    icon: Icon(Icons.close, color: context.irColors.muted)),
-              ]),
-              const SizedBox(height: 14),
-              CircleAvatar(
-                  radius: 28,
-                  backgroundColor: IrPalette.accent,
-                  backgroundImage: photoUrl == null ? null : NetworkImage(photoUrl!),
-                  child: photoUrl == null
-                      ? Icon(Icons.person, color: IrPalette.ink, size: 30)
-                      : null),
-              const SizedBox(height: 10),
-              Text(user['name']?.toString() ?? 'Conductor IR',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                      color: context.irColors.text,
-                      fontSize: 20,
-                      fontWeight: FontWeight.w800)),
-              const SizedBox(height: 4),
-              Wrap(
-                  alignment: WrapAlignment.center,
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  spacing: 8,
-                  runSpacing: 4,
-                  children: [
-                    ...List.generate(
-                        5,
-                        (index) => Icon(index < rating.round() ? Icons.star : Icons.star_border,
-                            color: context.irColors.accent, size: 20)),
-                    const SizedBox(width: 8),
-                    Text('${rating.toStringAsFixed(2)} · $totalRides viajes',
-                        style: TextStyle(
-                            color: context.irColors.text,
-                            fontSize: 15,
-                            fontWeight: FontWeight.w700)),
-                  ]),
-              const SizedBox(height: 3),
-              Text('$ratingCount calificaciones',
-                  textAlign: TextAlign.center,
-                  style:
-                      TextStyle(color: context.irColors.muted, fontSize: 12)),
-              Divider(color: context.irColors.border),
-              const SizedBox(height: 8),
-              ..._items.map((item) => Padding(
-                    padding: const EdgeInsets.only(bottom: 6),
-                    child: ListTile(
-                      minVerticalPadding: 8,
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(14)),
-                      leading: Icon(item.$3,
-                          color: context.irColors.accent, size: 24),
-                      title: Text(item.$2,
+          child: Column(children: [
+            Expanded(
+                child: ListView(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+              children: [
+                Row(children: [
+                  const Expanded(child: IrBrandLogo(size: 42)),
+                  IconButton(
+                      tooltip: 'Cerrar menú',
+                      onPressed: onClose,
+                      icon: Icon(Icons.close, color: context.irColors.muted)),
+                ]),
+                const SizedBox(height: 14),
+                CircleAvatar(
+                    radius: 28,
+                    backgroundColor: IrPalette.accent,
+                    backgroundImage:
+                        photoUrl == null ? null : NetworkImage(photoUrl!),
+                    child: photoUrl == null
+                        ? Icon(Icons.person, color: IrPalette.ink, size: 30)
+                        : null),
+                const SizedBox(height: 10),
+                Text(user['name']?.toString() ?? 'Conductor IR',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                        color: context.irColors.text,
+                        fontSize: 20,
+                        fontWeight: FontWeight.w800)),
+                const SizedBox(height: 4),
+                Wrap(
+                    alignment: WrapAlignment.center,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    spacing: 8,
+                    runSpacing: 4,
+                    children: [
+                      ...List.generate(
+                          5,
+                          (index) => Icon(
+                              index < rating.round()
+                                  ? Icons.star
+                                  : Icons.star_border,
+                              color: context.irColors.accent,
+                              size: 20)),
+                      const SizedBox(width: 8),
+                      Text('${rating.toStringAsFixed(2)} · $totalRides viajes',
                           style: TextStyle(
                               color: context.irColors.text,
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600)),
-                      onTap: () => onSectionSelected(item.$1),
-                    ),
-                  )),
-            ],
-          ),
+                              fontSize: 15,
+                              fontWeight: FontWeight.w700)),
+                    ]),
+                const SizedBox(height: 3),
+                Text('$ratingCount calificaciones',
+                    textAlign: TextAlign.center,
+                    style:
+                        TextStyle(color: context.irColors.muted, fontSize: 12)),
+                Divider(color: context.irColors.border),
+                const SizedBox(height: 8),
+                ..._items.map((item) => Padding(
+                      padding: const EdgeInsets.only(bottom: 6),
+                      child: ListTile(
+                        minVerticalPadding: 8,
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14)),
+                        leading: Icon(item.$3,
+                            color: context.irColors.accent, size: 24),
+                        title: Text(item.$2,
+                            style: TextStyle(
+                                color: context.irColors.text,
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600)),
+                        onTap: () => onSectionSelected(item.$1),
+                      ),
+                    )),
+              ],
+            )),
+            IrMobilityDrawerFooter(onLogout: () => onSectionSelected('logout')),
+          ]),
         ),
       );
 }
@@ -1488,49 +1583,33 @@ class _DriverStatusPill extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Material(
         color: context.irColors.raised,
-        borderRadius: BorderRadius.circular(20),
-        child: InkWell(
-            onTap: onTap,
-            borderRadius: BorderRadius.circular(20),
-            child: Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
-                child: Row(children: [
-                  Container(
-                      width: 10,
-                      height: 10,
-                      decoration: BoxDecoration(
-                          color: available
-                              ? context.irColors.accent
-                              : reserved
-                                  ? context.irColors.accent
-                                  : const Color(0xFF777A7B),
-                          shape: BoxShape.circle)),
-                  const SizedBox(width: 10),
-                  Expanded(
-                      child: Text(
-                          available
-                              ? 'Disponible para recibir viajes'
-                              : reserved
-                                  ? 'Viaje reservado en curso'
-                                  : 'Conectarte para recibir viajes',
-                          style: TextStyle(
-                              color: context.irColors.text,
-                              fontWeight: FontWeight.w700))),
-                  Text(
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: Row(children: [
+              Expanded(
+                  child: Text(
                       available
-                          ? 'ACTIVO'
+                          ? 'Disponible para recibir viajes'
                           : reserved
-                              ? 'EN VIAJE'
-                              : 'DESCONECTADO',
-                      textScaler: TextScaler.noScaling,
+                              ? 'Viaje reservado en curso'
+                              : 'Desconectado',
                       style: TextStyle(
-                          color: available || reserved
-                              ? context.irColors.accent
-                              : context.irColors.muted,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w800)),
-                ]))),
+                          color: context.irColors.text,
+                          fontWeight: FontWeight.w700))),
+              const SizedBox(width: 8),
+              if (reserved)
+                Icon(Icons.directions_car_outlined,
+                    color: context.irColors.accent)
+              else
+                Semantics(
+                  label: 'Recibir solicitudes de viaje',
+                  child: Switch.adaptive(
+                    value: available,
+                    onChanged: onTap == null ? null : (_) => onTap!(),
+                  ),
+                ),
+            ])),
       );
 }
 
@@ -1540,20 +1619,51 @@ class _DriverPointsPanel extends StatelessWidget {
   final String tier;
 
   @override
-  Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
-        decoration: BoxDecoration(
-            color: IrPalette.accent, borderRadius: BorderRadius.circular(20)),
-        child: Row(children: [
-          const Icon(Icons.stars, color: IrPalette.ink, size: 27),
-          const SizedBox(width: 10),
-          Expanded(
-              child: Text('$points PI · Nivel $tier',
-                  style: const TextStyle(
-                      color: IrPalette.ink, fontWeight: FontWeight.w900))),
-          const Icon(Icons.card_giftcard, color: IrPalette.ink),
-        ]),
-      );
+  Widget build(BuildContext context) => Padding(
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Icon(Icons.stars_outlined, color: context.irColors.accent, size: 21),
+        const SizedBox(width: 10),
+        Expanded(
+            child: Text('$points PI · Nivel $tier',
+                style: TextStyle(
+                    color: context.irColors.text,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600))),
+        const SizedBox(width: 8),
+        Text('ProMaster',
+            style: TextStyle(color: context.irColors.muted, fontSize: 12)),
+      ]));
+}
+
+class _RequestRouteLine extends StatelessWidget {
+  const _RequestRouteLine(
+      {required this.icon, required this.label, required this.value});
+  final IconData icon;
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) =>
+      Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: Icon(icon, size: 18, color: context.irColors.muted)),
+        const SizedBox(width: 10),
+        Expanded(
+            child:
+                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(label,
+              style: TextStyle(color: context.irColors.muted, fontSize: 12)),
+          const SizedBox(height: 3),
+          Text(value,
+              style: TextStyle(
+                  color: context.irColors.text,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                  height: 1.4)),
+        ])),
+      ]);
 }
 
 const _driverMapStyle = '''[

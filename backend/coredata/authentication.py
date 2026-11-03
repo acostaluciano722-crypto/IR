@@ -43,6 +43,8 @@ class SupabaseJWTAuthentication(BaseAuthentication):
             raise ProfileRequired() from None
         if (identity.user.estado or '').strip().lower() in INACTIVE_STATES:
             raise AuthenticationFailed('La cuenta no esta activa.')
+        from .face_security import enforce_face_verification
+        enforce_face_verification(request, identity.user)
         return identity.user, claims
 
     def authenticate_header(self, request):
@@ -72,6 +74,8 @@ class SignedTokenAuthentication(BaseAuthentication):
             raise AuthenticationFailed('La sesión expiró o no es válida.')
         if (user.estado or '').strip().lower() in INACTIVE_STATES:
             raise AuthenticationFailed('La cuenta no está activa.')
+        from .face_security import enforce_face_verification
+        enforce_face_verification(request, user)
         return user, token
 
     def authenticate_header(self, request):

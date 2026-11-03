@@ -14,6 +14,8 @@ Flutter para la aplicación móvil/adaptable y Django para el backend existente.
 
 El usuario principal es el pasajero (usuario rider) que necesita movilizarse dentro del área de cobertura, inicialmente Cartagena, Colombia. Solicita viajes, propone una tarifa, compara respuestas de conductores y elige la opción que mejor le conviene.
 
+El conductor usa la misma app con su propio espacio operativo: controla su disponibilidad, revisa solicitudes cercanas, acepta o contraoferta y acompaña el viaje. Su prioridad visual es atender esas solicitudes; bolsa, actividad y ProMaster quedan accesibles como tareas secundarias.
+
 ## Product Purpose
 
 IR conecta pasajeros y conductores para solicitar y completar viajes. El pasajero inicia la demanda indicando origen, destino, categoría y una oferta, consulta la ruta y el valor sugerido, recibe ofertas y puede seleccionar un conductor. El éxito del producto consiste en que el pasajero pueda completar ese flujo con información clara y seguimiento de su viaje.
@@ -29,9 +31,12 @@ La experiencia se usa desde un dispositivo móvil con ubicación activa, dentro 
 ## Capabilities and Constraints
 
 - La aplicación debe conservar el mapa, geolocalización, búsqueda de lugares, rutas, tarifas, categorías de vehículo, solicitudes, ofertas, viajes recientes y navegación a puntos, bonificaciones, historial, soporte y perfil.
-- El acceso registrado acepta correo o celular y contraseña; los códigos SMS requieren integrar un proveedor de verificación.
-- Pasajeros y conductores pueden subir, cambiar y eliminar una foto de perfil.
+- El acceso compartido usa Supabase Auth con correo, contraseña, confirmación y recuperación. Google aparece solo cuando su proveedor OAuth está configurado; los códigos SMS requieren un proveedor adicional.
+- Pasajeros y conductores completan una primera comparación facial entre la foto de su documento y una selfie tomada en ese momento. La selfie aceptada genera su foto de perfil.
+- La comprobación se renueva cada dos meses calendario, calculados en Bogotá, comparando la nueva selfie con selfies anteriores aceptadas. El servidor exige la comprobación vigente para operar cuando la política está habilitada.
+- El documento y la selfie original no se conservan: las referencias faciales se cifran en el backend y la foto derivada se aloja en Storage privado. El usuario puede eliminar su registro facial y volver a completar el flujo. La comparación no certifica la autenticidad del documento ni la identidad civil.
 - La ubicación del conductor se publica mientras está disponible y se muestran vehículos activos cercanos al pasajero cuando prepara una solicitud.
+- El conductor controla su disponibilidad, consulta solicitudes cercanas y conserva los flujos de aceptación, contraoferta, bolsa y seguimiento del viaje.
 - La cartera del conductor muestra saldo y movimientos. Las recargas reales requieren una pasarela; el flujo local de desarrollo es solo una simulación.
 - El backend existente es Django y la aplicación cliente existente es Flutter.
 - La interfaz y la terminología principal deben permanecer en español.

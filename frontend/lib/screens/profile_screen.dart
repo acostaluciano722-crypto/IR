@@ -1,10 +1,13 @@
-import 'dart:typed_data';
+import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
 
 import '../services/api_service.dart';
+import '../services/face_verification.dart';
+import '../ui/ir_auth_layout.dart';
+import '../ui/ir_components.dart';
 import '../ui/ir_theme.dart';
+import 'face_verification_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({
@@ -27,155 +30,176 @@ class ProfileScreen extends StatefulWidget {
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
-  final _picker = ImagePicker();
-  XFile? _selection;
+  FaceVerificationStatus? _status;
   String? _photoUrl;
   String? _error;
-  bool _saving = false;
+  bool _loading = true;
+  bool _removing = false;
 
   @override
   void initState() {
     super.initState();
     _photoUrl = widget.photoUrl;
+    unawaited(_reload());
   }
 
-  Future<void> _choosePhoto() async {
+  Future<void> _reload() async {
     try {
-      final file = await _picker.pickImage(
-        source: ImageSource.gallery,
-        maxWidth: 1200,
-        imageQuality: 88,
-      );
-      if (file != null && mounted) {
-        setState(() {
-          _selection = file;
-          _error = null;
-        });
-      }
-    } catch (_) {
-      if (mounted) setState(() => _error = 'No se pudo abrir la galería. Revisa los permisos e inténtalo de nuevo.');
-    }
-  }
-
-  Future<void> _save() async {
-    final file = _selection;
-    if (file == null || _saving) return;
-    setState(() {
-      _saving = true;
-      _error = null;
-    });
-    try {
-      final url = await widget.api.uploadProfilePhoto(
-        bytes: await file.readAsBytes(),
-        filename: file.name,
-      );
+      final status = await widget.api.getFaceVerificationStatus();
+      if (!mounted) return;
+      final changed = _photoUrl != status.photoUrl;
+      setState(() {
+        _status = status;
+        _photoUrl = status.photoUrl;
+        _loading = false;
+        _error = null;
+      });
+      if (changed) widget.onPhotoChanged?.call(status.photoUrl);
+    } catch (error) {
       if (!mounted) return;
       setState(() {
-        _photoUrl = url;
-        _selection = null;
+        _loading = false;
+        _error = error is ApiException
+            ? error.message
+            : 'No pudimos consultar la comprobación de tu perfil.';
       });
-      widget.onPhotoChanged?.call(url);
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Foto de perfil actualizada.')));
-    } on ApiException catch (error) {
-      if (mounted) setState(() => _error = error.message);
-    } catch (_) {
-      if (mounted) setState(() => _error = 'No se pudo guardar la imagen. Inténtalo de nuevo.');
-    } finally {
-      if (mounted) setState(() => _saving = false);
     }
   }
 
-  Future<void> _remove() async {
-    if (_saving) return;
-    setState(() {
-      _saving = true;
-      _error = null;
-    });
+  Future<void> _openFacialCheck() async {
+    await Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) =>
+          FaceVerificationScreen(api: widget.api, initialStatus: _status),
+    ));
+    if (mounted) await _reload();
+  }
+
+  Future<void> _removePhoto() async {
+    if (_removing) return;
+    setState(() => _removing = true);
     try {
       await widget.api.deleteProfilePhoto();
       if (!mounted) return;
-      setState(() {
-        _photoUrl = null;
-        _selection = null;
-      });
+      setState(() => _photoUrl = null);
       widget.onPhotoChanged?.call(null);
-    } on ApiException catch (error) {
-      if (mounted) setState(() => _error = error.message);
-    } catch (_) {
-      if (mounted) setState(() => _error = 'No se pudo quitar la foto. Inténtalo de nuevo.');
+      await _reload();
+    } catch (error) {
+      if (mounted) {
+        setState(() => _error = error is ApiException
+            ? error.message
+            : 'No pudimos quitar la foto. Inténtalo de nuevo.');
+      }
     } finally {
-      if (mounted) setState(() => _saving = false);
+      if (mounted) setState(() => _removing = false);
     }
-  }
-
-  Widget _avatar() {
-    final selected = _selection;
-    if (selected != null) {
-      return FutureBuilder<Uint8List>(
-        future: selected.readAsBytes(),
-        builder: (context, snapshot) => CircleAvatar(
-          radius: 62,
-          backgroundColor: IrPalette.accent,
-          backgroundImage: snapshot.hasData ? MemoryImage(snapshot.data!) : null,
-          child: snapshot.hasData ? null : const CircularProgressIndicator(),
-        ),
-      );
-    }
-    return CircleAvatar(
-      radius: 62,
-      backgroundColor: IrPalette.accent,
-      backgroundImage: _photoUrl == null ? null : NetworkImage(_photoUrl!),
-      child: _photoUrl == null
-          ? const Icon(Icons.person, color: IrPalette.ink, size: 56)
-          : null,
-    );
   }
 
   @override
   Widget build(BuildContext context) {
     final colors = context.irColors;
+    final status = _status;
     return Scaffold(
       appBar: AppBar(title: const Text('Mi perfil')),
-      backgroundColor: colors.surface,
       body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(24, 32, 24, 36),
-          children: [
-            Center(
-              child: GestureDetector(
-                onTap: _choosePhoto,
-                child: _avatar(),
-              ),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 520),
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(24, 32, 24, 36),
+              children: [
+                Center(
+                    child: ClipOval(
+                        child: ColoredBox(
+                  color: colors.input,
+                  child: SizedBox.square(
+                    dimension: 112,
+                    child: _photoUrl == null
+                        ? Icon(Icons.person_outline_rounded,
+                            size: 56, color: colors.muted)
+                        : Image.network(_photoUrl!,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) => Icon(
+                                Icons.person_outline_rounded,
+                                size: 56,
+                                color: colors.muted)),
+                  ),
+                ))),
+                const SizedBox(height: 20),
+                Text(widget.name,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                        color: colors.text,
+                        fontSize: 26,
+                        fontWeight: FontWeight.w700)),
+                const SizedBox(height: 6),
+                Text(widget.role == 'driver' ? 'Conductor IR' : 'Pasajero IR',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: colors.muted)),
+                const SizedBox(height: 32),
+                if (_loading)
+                  const IrLoadingState(label: 'Consultando tu comprobación')
+                else if (_error != null)
+                  IrInlineMessage(
+                      message: _error!, error: true, onRetry: _reload),
+                if (status != null) ...[
+                  Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Icon(
+                        status.hasCurrentVerification
+                            ? Icons.verified_user_outlined
+                            : Icons.schedule_outlined,
+                        color: status.hasCurrentVerification
+                            ? colors.accent
+                            : colors.muted),
+                    const SizedBox(width: 12),
+                    Expanded(
+                        child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                          Text(
+                              status.hasCurrentVerification
+                                  ? 'Comprobación facial vigente'
+                                  : 'Comprobación facial pendiente',
+                              style:
+                                  const TextStyle(fontWeight: FontWeight.w600)),
+                          const SizedBox(height: 6),
+                          Text(
+                              status.verificationDueAt == null
+                                  ? 'Compara tu documento con una selfie para crear tu foto.'
+                                  : 'Renovación: ${MaterialLocalizations.of(context).formatMediumDate(status.verificationDueAt!.toLocal())}',
+                              style:
+                                  TextStyle(color: colors.muted, height: 1.5)),
+                        ])),
+                  ]),
+                  const SizedBox(height: 24),
+                  FilledButton.icon(
+                    onPressed: _removing ? null : _openFacialCheck,
+                    icon: const Icon(Icons.camera_alt_outlined),
+                    label: Text(status.enrolled
+                        ? 'Actualizar foto con una selfie'
+                        : 'Comprobar mi rostro'),
+                  ),
+                  if (_photoUrl != null) ...[
+                    const SizedBox(height: 8),
+                    TextButton.icon(
+                        onPressed: _removing ? null : _removePhoto,
+                        icon: const Icon(Icons.delete_outline),
+                        label: Text(_removing
+                            ? 'Quitando foto…'
+                            : 'Quitar foto de perfil')),
+                  ],
+                  const SizedBox(height: 24),
+                  Text(
+                      'Tu foto se obtiene de una selfie que coincide con tu referencia facial. La comprobación se renueva cada dos meses.',
+                      style: TextStyle(color: colors.muted, height: 1.5)),
+                  const SizedBox(height: 12),
+                  Text(
+                      'Puedes consultar o eliminar tu referencia facial desde la pantalla de comprobación.',
+                      style: TextStyle(
+                          color: colors.muted, fontSize: 13, height: 1.5)),
+                ],
+              ],
             ),
-            const SizedBox(height: 18),
-            Text(widget.name, textAlign: TextAlign.center, style: TextStyle(color: colors.text, fontSize: 24, fontWeight: FontWeight.w800)),
-            const SizedBox(height: 5),
-            Text(widget.role == 'driver' ? 'Conductor IR' : 'Pasajero IR', textAlign: TextAlign.center, style: TextStyle(color: colors.muted)),
-            const SizedBox(height: 26),
-            OutlinedButton.icon(
-              onPressed: _saving ? null : _choosePhoto,
-              icon: const Icon(Icons.photo_library_outlined),
-              label: Text(_photoUrl == null ? 'Elegir foto' : 'Cambiar foto'),
-            ),
-            if (_selection != null) ...[
-              const SizedBox(height: 10),
-              FilledButton.icon(
-                onPressed: _saving ? null : _save,
-                icon: _saving ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.check),
-                label: Text(_saving ? 'Guardando…' : 'Guardar foto'),
-              ),
-            ],
-            if (_photoUrl != null && _selection == null) ...[
-              const SizedBox(height: 10),
-              TextButton.icon(onPressed: _saving ? null : _remove, icon: const Icon(Icons.delete_outline), label: const Text('Quitar foto')),
-            ],
-            if (_error != null) ...[
-              const SizedBox(height: 18),
-              Text(_error!, textAlign: TextAlign.center, style: TextStyle(color: Theme.of(context).colorScheme.error)),
-            ],
-            const SizedBox(height: 22),
-            Text('Tu foto ayuda a que pasajeros y conductores te reconozcan durante el viaje.', textAlign: TextAlign.center, style: TextStyle(color: colors.muted, height: 1.45)),
-          ],
+          ),
         ),
       ),
     );

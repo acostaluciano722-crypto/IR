@@ -5,10 +5,10 @@ final ValueNotifier<bool> irLightMode = ValueNotifier<bool>(false);
 
 abstract final class IrPalette {
   static const ink = Color(0xFF171B1D);
-  static const surface = Color(0xFF111213);
-  static const raised = Color(0xFF202122);
-  static const input = Color(0xFF303031);
-  static const border = Color(0xFF2D2E2F);
+  static const surface = Color(0xFF101213);
+  static const raised = Color(0xFF191C1E);
+  static const input = Color(0xFF232729);
+  static const border = Color(0xFF33383B);
   static const accent = Color(0xFFE8F044);
   static const text = Colors.white;
   static const muted = Color(0xB3FFFFFF);
@@ -27,7 +27,7 @@ class IrColors {
   Color get input => light ? const Color(0xFFEBECE4) : IrPalette.input;
   Color get border => light ? const Color(0xFFD4D7CC) : IrPalette.border;
   Color get text => light ? IrPalette.ink : IrPalette.text;
-  Color get muted => light ? const Color(0xFF565B53) : const Color(0xFFB7BABA);
+  Color get muted => light ? const Color(0xFF565B53) : const Color(0xFFADB5B9);
   Color get accent => light ? const Color(0xFF596000) : IrPalette.accent;
 }
 
@@ -49,14 +49,14 @@ ThemeData _theme(Brightness brightness) {
       outlineVariant: colors.border,
       surfaceContainerLow: colors.raised,
       surfaceContainerHighest: colors.input);
-  final shape = RoundedRectangleBorder(borderRadius: BorderRadius.circular(18));
+  final shape = RoundedRectangleBorder(borderRadius: BorderRadius.circular(14));
   final actionStyle = ButtonStyle(
       minimumSize: const WidgetStatePropertyAll(Size(48, 52)),
       padding: const WidgetStatePropertyAll(
-          EdgeInsets.symmetric(horizontal: 22, vertical: 15)),
+          EdgeInsets.symmetric(horizontal: 20, vertical: 15)),
       shape: WidgetStatePropertyAll(shape),
       textStyle: const WidgetStatePropertyAll(TextStyle(
-          fontFamily: 'Arial', fontSize: 16, fontWeight: FontWeight.w700)),
+          fontFamily: 'Geist', fontSize: 15, fontWeight: FontWeight.w600)),
       animationDuration: IrMotion.feedback,
       foregroundBuilder: IrMotion.buttonFeedback,
       visualDensity: VisualDensity.standard);
@@ -75,9 +75,9 @@ ThemeData _theme(Brightness brightness) {
       brightness: brightness,
       colorScheme: scheme,
       scaffoldBackgroundColor: colors.surface,
-      fontFamily: 'Arial',
+      fontFamily: 'Geist',
       textTheme: ThemeData(brightness: brightness).textTheme.apply(
-          fontFamily: 'Arial',
+          fontFamily: 'Geist',
           bodyColor: colors.text,
           displayColor: colors.text),
       materialTapTargetSize: MaterialTapTargetSize.padded,
@@ -87,82 +87,58 @@ ThemeData _theme(Brightness brightness) {
           elevation: 0,
           scrolledUnderElevation: 0,
           centerTitle: false,
-          toolbarHeight: 68,
+          toolbarHeight: 64,
           titleSpacing: 20,
           titleTextStyle: TextStyle(
-              fontFamily: 'Arial',
+              fontFamily: 'Geist',
               color: colors.text,
               fontSize: 18,
-              fontWeight: FontWeight.w900,
+              fontWeight: FontWeight.w700,
               letterSpacing: -.35)),
       cardTheme: CardThemeData(
           color: colors.raised,
           elevation: 0,
           margin: EdgeInsets.zero,
           shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(22),
+              borderRadius: BorderRadius.circular(16),
               side: BorderSide(color: colors.border))),
       inputDecorationTheme: InputDecorationTheme(
           filled: true,
-          fillColor: colors.raised,
+          fillColor: colors.input,
           contentPadding:
-              const EdgeInsets.symmetric(horizontal: 18, vertical: 19),
+              const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
           labelStyle: TextStyle(color: colors.muted),
           hintStyle: TextStyle(color: colors.muted),
           errorMaxLines: 3,
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(18)),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
           enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(18),
+              borderRadius: BorderRadius.circular(12),
               borderSide: BorderSide(color: colors.border)),
           focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(18),
+              borderRadius: BorderRadius.circular(12),
               borderSide: BorderSide(color: colors.accent, width: 2))),
       filledButtonTheme: FilledButtonThemeData(style: primaryStyle),
       elevatedButtonTheme: ElevatedButtonThemeData(style: primaryStyle),
       outlinedButtonTheme: OutlinedButtonThemeData(
           style: actionStyle.copyWith(
-              foregroundColor: WidgetStatePropertyAll(colors.text),
-              side: WidgetStatePropertyAll(BorderSide(color: colors.muted)))),
+              foregroundColor: WidgetStateProperty.resolveWith((states) =>
+                  states.contains(WidgetState.disabled)
+                      ? colors.muted.withValues(alpha: .48)
+                      : colors.text),
+              side: WidgetStateProperty.resolveWith((states) => BorderSide(
+                  color: states.contains(WidgetState.disabled)
+                      ? colors.border.withValues(alpha: .5)
+                      : colors.border)))),
       textButtonTheme: TextButtonThemeData(
-          style: actionStyle.copyWith(
-              foregroundColor: WidgetStatePropertyAll(colors.accent))),
-      iconButtonTheme: IconButtonThemeData(
-          style: ButtonStyle(
-              minimumSize: const WidgetStatePropertyAll(Size(48, 48)),
-              foregroundBuilder: IrMotion.buttonFeedback)),
+          style: actionStyle.copyWith(padding: const WidgetStatePropertyAll(EdgeInsets.symmetric(horizontal: 12, vertical: 10)), foregroundColor: WidgetStatePropertyAll(colors.accent))),
+      iconButtonTheme: IconButtonThemeData(style: ButtonStyle(minimumSize: const WidgetStatePropertyAll(Size(48, 48)), foregroundBuilder: IrMotion.buttonFeedback)),
       dividerTheme: DividerThemeData(color: colors.border, space: 24),
-      progressIndicatorTheme: ProgressIndicatorThemeData(
-          color: colors.accent, linearTrackColor: colors.border),
-      snackBarTheme: SnackBarThemeData(
-          behavior: SnackBarBehavior.floating,
-          backgroundColor: colors.text,
-          contentTextStyle: TextStyle(color: colors.surface),
-          shape: shape),
-      bottomSheetTheme: BottomSheetThemeData(
-          backgroundColor: colors.surface,
-          surfaceTintColor: Colors.transparent,
-          showDragHandle: true,
-          shape: const RoundedRectangleBorder(
-              borderRadius: BorderRadius.vertical(top: Radius.circular(28)))),
-      drawerTheme:
-          DrawerThemeData(backgroundColor: colors.surface, elevation: 0),
-      navigationDrawerTheme: NavigationDrawerThemeData(
-          backgroundColor: colors.surface,
-          indicatorColor: IrPalette.accent,
-          iconTheme: WidgetStateProperty.resolveWith((states) => IconThemeData(
-              color: states.contains(WidgetState.selected)
-                  ? IrPalette.ink
-                  : colors.muted))),
-      segmentedButtonTheme: SegmentedButtonThemeData(
-          style: ButtonStyle(
-              minimumSize: const WidgetStatePropertyAll(Size(88, 52)),
-              shape: WidgetStatePropertyAll(RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(18))),
-              side: WidgetStatePropertyAll(BorderSide(color: colors.border)),
-              backgroundColor:
-                  WidgetStateProperty.resolveWith((states) => states.contains(WidgetState.selected) ? IrPalette.accent : colors.raised),
-              foregroundColor: WidgetStateProperty.resolveWith((states) => states.contains(WidgetState.selected) ? IrPalette.ink : colors.text),
-              textStyle: const WidgetStatePropertyAll(TextStyle(fontWeight: FontWeight.w800, letterSpacing: -.15)))),
+      progressIndicatorTheme: ProgressIndicatorThemeData(color: colors.accent, linearTrackColor: colors.border),
+      snackBarTheme: SnackBarThemeData(behavior: SnackBarBehavior.floating, backgroundColor: colors.text, contentTextStyle: TextStyle(color: colors.surface), shape: shape),
+      bottomSheetTheme: BottomSheetThemeData(backgroundColor: colors.surface, surfaceTintColor: Colors.transparent, showDragHandle: true, shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24)))),
+      drawerTheme: DrawerThemeData(backgroundColor: colors.surface, elevation: 0),
+      navigationDrawerTheme: NavigationDrawerThemeData(backgroundColor: colors.surface, indicatorColor: IrPalette.accent, iconTheme: WidgetStateProperty.resolveWith((states) => IconThemeData(color: states.contains(WidgetState.selected) ? IrPalette.ink : colors.muted))),
+      segmentedButtonTheme: SegmentedButtonThemeData(style: ButtonStyle(minimumSize: const WidgetStatePropertyAll(Size(88, 52)), shape: WidgetStatePropertyAll(RoundedRectangleBorder(borderRadius: BorderRadius.circular(18))), side: WidgetStatePropertyAll(BorderSide(color: colors.border)), backgroundColor: WidgetStateProperty.resolveWith((states) => states.contains(WidgetState.selected) ? IrPalette.accent : colors.raised), foregroundColor: WidgetStateProperty.resolveWith((states) => states.contains(WidgetState.selected) ? IrPalette.ink : colors.text), textStyle: const WidgetStatePropertyAll(TextStyle(fontWeight: FontWeight.w800, letterSpacing: -.15)))),
       chipTheme: ChipThemeData(backgroundColor: colors.input, selectedColor: IrPalette.accent, side: BorderSide(color: colors.border), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)), labelStyle: TextStyle(color: colors.text, fontWeight: FontWeight.w700)),
       tooltipTheme: const TooltipThemeData(waitDuration: Duration(milliseconds: 350)),
       textSelectionTheme: TextSelectionThemeData(cursorColor: colors.accent, selectionColor: colors.accent.withValues(alpha: .25), selectionHandleColor: colors.accent));

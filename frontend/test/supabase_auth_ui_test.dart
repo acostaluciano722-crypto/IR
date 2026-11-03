@@ -14,6 +14,8 @@ class _SupabaseApi extends ApiService {
   @override
   bool get usesSupabase => true;
   @override
+  Future<bool> isGoogleSignInAvailable() async => true;
+  @override
   Future<void> signInWithGoogle() async {
     googleCalls++;
   }

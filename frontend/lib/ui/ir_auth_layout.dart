@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
+
+import 'ir_auth_scene.dart';
 import 'ir_brand.dart';
-import 'ir_components.dart';
 import 'ir_theme.dart';
 
 class IrAuthLayout extends StatelessWidget {
@@ -12,80 +13,93 @@ class IrAuthLayout extends StatelessWidget {
   final String title;
   final String subtitle;
   final Widget child;
+
   @override
-  Widget build(BuildContext context) => Scaffold(body: IrEditorialBackdrop(
-          child: SafeArea(child: LayoutBuilder(builder: (context, constraints) {
-        final wide = constraints.maxWidth >= 820;
-        final header = Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(children: [
-              IconButton.filledTonal(
-                  tooltip: 'Volver',
-                  onPressed: () => Navigator.of(context).maybePop(),
-                  icon: const Icon(Icons.arrow_back)),
-              const SizedBox(width: 12),
-              const IrBrandLogo(size: 42, showWordmark: true),
-            ]),
-            SizedBox(height: wide ? 78 : 34),
+  Widget build(BuildContext context) => Scaffold(
+        body: SafeArea(child: LayoutBuilder(builder: (context, constraints) {
+          final wide = constraints.maxWidth >= 1000;
+          final horizontal = constraints.maxWidth < 500 ? 24.0 : 40.0;
+          return Column(children: [
             Container(
-                width: 46,
-                height: 4,
-                decoration: BoxDecoration(
-                    color: context.irColors.accent,
-                    borderRadius: BorderRadius.circular(99))),
-            const SizedBox(height: 18),
-            Text(title,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                    color: context.irColors.text,
-                    fontSize: wide ? 52 : 36,
-                    height: 1,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: wide ? -2 : -1.1)),
-            const SizedBox(height: 14),
-            Text(subtitle,
-                style: TextStyle(
-                    color: context.irColors.muted, fontSize: 16, height: 1.5)),
-          ],
-        );
-        final form = IrPanel(
-            padding: EdgeInsets.fromLTRB(
-                wide ? 28 : 18, wide ? 30 : 24, wide ? 28 : 18, 24),
-            child: child);
-        return Align(
-            alignment: Alignment.topCenter,
-            child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 1040),
+              height: 72,
+              padding: EdgeInsets.symmetric(horizontal: horizontal),
+              decoration: BoxDecoration(
+                  border: Border(
+                      bottom: BorderSide(color: context.irColors.border))),
+              child: Row(children: [
+                if (Navigator.of(context).canPop()) ...[
+                  IconButton(
+                      tooltip: 'Volver',
+                      onPressed: () => Navigator.of(context).maybePop(),
+                      icon: const Icon(Icons.arrow_back)),
+                  const SizedBox(width: 8),
+                ],
+                const IrBrandLogo(size: 36, showWordmark: true),
+              ]),
+            ),
+            Expanded(
                 child: SingleChildScrollView(
-                    keyboardDismissBehavior:
-                        ScrollViewKeyboardDismissBehavior.onDrag,
-                    padding: EdgeInsets.fromLTRB(
-                        wide ? 48 : 20, 16, wide ? 48 : 20, 32),
-                    child: wide
-                        ? Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                                Expanded(child: IrEntrance(child: header)),
-                                const SizedBox(width: 64),
-                                SizedBox(
-                                    width: 430,
-                                    child: IrEntrance(
-                                        delay:
-                                            const Duration(milliseconds: 100),
-                                        child: form)),
-                              ])
-                        : Column(
+              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+              padding: EdgeInsets.fromLTRB(
+                  horizontal, wide ? 48 : 32, horizontal, 32),
+              child: Center(
+                  child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 1080),
+                child: wide
+                    ? Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                            Expanded(child: _intro(context, true)),
+                            const SizedBox(width: 100),
+                            SizedBox(width: 420, child: child),
+                          ])
+                    : ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 440),
+                        child: Column(
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
-                                IrEntrance(child: header),
-                                const SizedBox(height: 28),
-                                IrEntrance(
-                                    delay: const Duration(milliseconds: 100),
-                                    child: form),
-                              ]))));
-      }))));
+                              _intro(context, false),
+                              const SizedBox(height: 28),
+                              child
+                            ])),
+              )),
+            )),
+          ]);
+        })),
+      );
+
+  Widget _intro(BuildContext context, bool wide) => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title,
+              style: TextStyle(
+                  color: context.irColors.text,
+                  fontSize: wide ? 42 : 30,
+                  height: 1.12,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: wide ? -1.2 : -.7)),
+          const SizedBox(height: 12),
+          Text(subtitle,
+              style: TextStyle(
+                  color: context.irColors.muted, fontSize: 15, height: 1.5)),
+          if (wide) ...[
+            const SizedBox(height: 36),
+            const IrAuthScene(height: 260),
+            const SizedBox(height: 20),
+            Row(children: [
+              Icon(Icons.route_outlined,
+                  size: 20, color: context.irColors.accent),
+              const SizedBox(width: 10),
+              Expanded(
+                  child: Text('Tú eliges el destino. Tú acuerdas la tarifa.',
+                      style: TextStyle(
+                          color: context.irColors.muted,
+                          fontSize: 13,
+                          height: 1.4))),
+            ]),
+          ],
+        ],
+      );
 }
 
 class IrInlineMessage extends StatelessWidget {
@@ -94,36 +108,40 @@ class IrInlineMessage extends StatelessWidget {
   final String message;
   final bool error;
   final VoidCallback? onRetry;
+
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final foreground = error ? scheme.error : context.irColors.muted;
     return Semantics(
         liveRegion: true,
         child: Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-                color: error ? scheme.errorContainer : context.irColors.raised,
-                borderRadius: BorderRadius.circular(12)),
-            child:
-                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Icon(error ? Icons.error_outline : Icons.info_outline,
-                    color: error
-                        ? scheme.onErrorContainer
-                        : context.irColors.accent,
-                    size: 22),
-                const SizedBox(width: 10),
-                Expanded(
-                    child: Text(message,
-                        style: TextStyle(
-                            color: error
-                                ? scheme.onErrorContainer
-                                : context.irColors.text,
-                            height: 1.4))),
-              ]),
-              if (onRetry != null)
-                TextButton(onPressed: onRetry, child: const Text('Reintentar')),
-            ])));
+          width: double.infinity,
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+              color: error
+                  ? scheme.error.withValues(alpha: .08)
+                  : context.irColors.raised,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                  color: error
+                      ? scheme.error.withValues(alpha: .35)
+                      : context.irColors.border)),
+          child:
+              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Icon(error ? Icons.error_outline : Icons.info_outline,
+                  color: foreground, size: 20),
+              const SizedBox(width: 10),
+              Expanded(
+                  child: Text(message,
+                      style: TextStyle(
+                          color: foreground, fontSize: 13, height: 1.5))),
+            ]),
+            if (onRetry != null)
+              TextButton(
+                  onPressed: onRetry, child: const Text('Intentar de nuevo')),
+          ]),
+        ));
   }
 }

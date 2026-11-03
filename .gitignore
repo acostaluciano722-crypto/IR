@@ -14,6 +14,11 @@ frontend/.packages
 backend/media/
 backend/staticfiles/
 node_modules/
+.cache/
+**/__pycache__/
+*.py[cod]
+/artifacts/
+.impeccable/review/
 **/supabase/.temp/
 **/supabase/.branches/
 supabase/.env

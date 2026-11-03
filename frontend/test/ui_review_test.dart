@@ -16,6 +16,9 @@ const _phase = String.fromEnvironment('CAPTURE_PHASE', defaultValue: 'after');
 
 Future<void> loadReviewFonts() async {
   if (!_capture) return;
+  await (FontLoader('Geist')
+        ..addFont(rootBundle.load('assets/fonts/Geist-Variable.ttf')))
+      .load();
   final fonts = {
     'Arial': 'C:/Windows/Fonts/arial.ttf',
     'Georgia': 'C:/Windows/Fonts/georgia.ttf',

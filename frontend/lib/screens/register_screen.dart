@@ -164,8 +164,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
                             : const SizedBox.shrink()),
                     if (_api.usesSupabase) ...[
                       const SizedBox(height: 16),
-                      const Text(
-                          'Después de verificar tu correo, completa tu celular y los datos de tu perfil.'),
+                      Text(
+                          'Verifica tu correo y después completa tu perfil y la comprobación facial.',
+                          style: TextStyle(
+                              color: context.irColors.muted,
+                              fontSize: 13,
+                              height: 1.5)),
                     ],
                     const SizedBox(height: 24),
                     _field(_password, 'Contraseña', Icons.lock_outline,
@@ -257,37 +261,48 @@ class _RoleSelector extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => LayoutBuilder(
-        builder: (context, constraints) => Row(children: [
-          _option(context, 'passenger', 'Pasajero', Icons.person_outline,
-              constraints.maxWidth),
-          const SizedBox(width: 8),
-          _option(context, 'driver', 'Conductor', Icons.local_taxi_outlined,
-              constraints.maxWidth),
-        ]),
+        builder: (context, constraints) {
+          final stack = constraints.maxWidth < 340 ||
+              MediaQuery.textScalerOf(context).scale(16) > 21;
+          final passenger =
+              _option(context, 'passenger', 'Pasajero', Icons.person_outline);
+          final driver = _option(
+              context, 'driver', 'Conductor', Icons.local_taxi_outlined);
+          return stack
+              ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                      passenger,
+                      const SizedBox(height: 8),
+                      driver,
+                    ])
+              : Row(children: [
+                  Expanded(child: passenger),
+                  const SizedBox(width: 8),
+                  Expanded(child: driver),
+                ]);
+        },
       );
 
-  Widget _option(BuildContext context, String key, String label, IconData icon,
-      double totalWidth) {
+  Widget _option(
+      BuildContext context, String key, String label, IconData icon) {
     final selected = value == key;
-    final available = totalWidth - 8;
-    final width = available * (selected ? .58 : .42);
     return Semantics(
       selected: selected,
       button: true,
       child: AnimatedContainer(
-        width: width,
-        height: 72,
+        height: 56,
         duration: IrMotion.duration(context, IrMotion.transition),
         curve: Curves.easeOutCubic,
         decoration: BoxDecoration(
           color: selected ? IrPalette.accent : context.irColors.input,
-          borderRadius: BorderRadius.circular(18),
+          borderRadius: BorderRadius.circular(12),
           border: Border.all(
               color: selected ? IrPalette.accent : context.irColors.border),
         ),
         child: InkWell(
           onTap: enabled ? () => onChanged(key) : null,
-          borderRadius: BorderRadius.circular(18),
+          borderRadius: BorderRadius.circular(12),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 10),
             child: Row(children: [

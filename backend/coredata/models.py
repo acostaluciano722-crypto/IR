@@ -71,6 +71,25 @@ class SupabaseIdentity(models.Model):
         db_table = 'ir_auth_identity'
 
 
+class FaceEnrollment(models.Model):
+    """Encrypted own-user templates; raw ID images and selfies are never stored."""
+
+    user = models.OneToOneField(Usuario, on_delete=models.CASCADE, primary_key=True,
+                               related_name='face_enrollment')
+    encrypted_template = models.BinaryField(editable=False)
+    model_name = models.CharField(max_length=30, default='SFace')
+    detector_backend = models.CharField(max_length=30, default='opencv')
+    consent_version = models.CharField(max_length=40)
+    consented_at = models.DateTimeField()
+    enrolled_at = models.DateTimeField(auto_now_add=True)
+    last_verified_at = models.DateTimeField()
+    verification_due_at = models.DateTimeField(db_index=True)
+    avatar_name = models.CharField(max_length=300, blank=True)
+
+    class Meta:
+        db_table = 'ir_face_enrollment'
+
+
 class DriverPresence(models.Model):
     driver_id = models.UUIDField(unique=True, db_index=True)
     latitude = models.FloatField()

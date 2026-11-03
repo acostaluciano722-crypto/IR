@@ -9,6 +9,7 @@ import 'package:ir_mobile/services/api_service.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart' show GoogleMap;
 import 'package:ir_mobile/ui/ir_map_layout.dart';
 import 'package:ir_mobile/ui/ir_map_symbols.dart';
+import 'package:ir_mobile/ui/ir_mobility_navigation.dart';
 import 'package:pointer_interceptor/pointer_interceptor.dart';
 
 import 'ui_review_test.dart' show captureUi, pumpScreen, loadReviewFonts;
@@ -155,6 +156,54 @@ Map<String, dynamic> _ride(String status) => {
       'offers': <Map<String, dynamic>>[],
     };
 
+/// Synthetic fixtures for the single coordinated redesign review.
+/// The map is the test platform view; no remote user or location is accessed.
+Future<void> loadMobilityReviewAssets() async {
+  await IrMapSymbols.load();
+}
+
+void useMobilityReviewPlatforms() {
+  GoogleMapsFlutterPlatform.instance = _MapPlatform();
+  GeolocatorPlatform.instance = _LocationPlatform();
+}
+
+Map<String, dynamic> _mobilityReviewRide(String status) => {
+      ..._ride(status),
+      'passenger_name': 'Pasajero de prueba',
+      'driver_name': 'Conductor de prueba',
+      'origin_lat': 10.420,
+      'origin_lng': -75.520,
+      'passenger_lat': 10.420,
+      'passenger_lng': -75.520,
+      'driver_lat': 10.410,
+      'driver_lng': -75.510,
+      'destination_lat': 10.440,
+      'destination_lng': -75.540,
+    };
+
+PassengerHomeScreen buildPassengerReviewScreen({bool activeTrip = false}) =>
+    PassengerHomeScreen(
+      api: _Api(rides: activeTrip ? [_mobilityReviewRide('accepted')] : const []),
+      user: const {'name': 'Cuenta de prueba IR'},
+    );
+
+DriverHomeScreen buildDriverReviewScreen(
+        {bool activeTrip = false, bool online = true}) =>
+    DriverHomeScreen(
+      api: _Api(
+        status: activeTrip
+            ? 'reserved_for_trip'
+            : online
+                ? 'available'
+                : 'offline',
+        rides: activeTrip ? [_mobilityReviewRide('accepted')] : const [],
+        available: online && !activeTrip
+            ? [_mobilityReviewRide('searching')]
+            : const [],
+      ),
+      user: const {'name': 'Cuenta de prueba IR'},
+    );
+
 void main() {
   setUpAll(() async {
     await loadReviewFonts();
@@ -172,6 +221,9 @@ void main() {
           light: light);
       final menu = find.byTooltip('Abrir menú');
       final location = find.byTooltip('Centrar en mi ubicación');
+      expect(find.byType(NavigationBar), findsOneWidget);
+      expect(tester.getRect(find.byType(TextField)).top,
+          lessThan(tester.getRect(find.text('Elige cómo viajar')).top));
       expect(tester.getRect(menu).overlaps(tester.getRect(location)), isFalse);
       await captureUi(tester, 'passenger-${light ? 'light' : 'dark'}');
       await tester.tap(menu);
@@ -197,6 +249,8 @@ void main() {
               user: user),
           light: light);
       expect(find.text('Disponible para recibir viajes'), findsOneWidget);
+      expect(find.byType(GoogleMap), findsOneWidget);
+      expect(find.byType(NavigationBar), findsOneWidget);
       await captureUi(tester, 'driver-${light ? 'light' : 'dark'}');
       expect(tester.takeException(), isNull);
       await tester.tap(find.byTooltip('Abrir menú'));
@@ -258,7 +312,12 @@ void main() {
       expect(rect.left, greaterThanOrEqualTo(0));
       expect(rect.right, lessThanOrEqualTo(1092));
     }
-    expect(tester.getRect(find.text('Comfort')).right, greaterThan(800));
+    final mapRect = tester.getRect(find.byType(GoogleMap));
+    expect(
+        mapRect.left, IrMobilityLayout.railWidth + IrMobilityLayout.panelWidth);
+    expect(tester.getRect(find.text('Comfort')).right, lessThan(mapRect.left));
+    expect(find.byType(NavigationRail), findsOneWidget);
+    expect(find.byType(NavigationBar), findsNothing);
     expect(tester.takeException(), isNull);
 
     await tester.pumpWidget(const SizedBox.shrink());

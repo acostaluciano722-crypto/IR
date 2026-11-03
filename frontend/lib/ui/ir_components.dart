@@ -10,64 +10,8 @@ class IrEditorialBackdrop extends StatelessWidget {
   final Widget child;
 
   @override
-  Widget build(BuildContext context) => Stack(
-        fit: StackFit.expand,
-        children: [
-          ColoredBox(color: context.irColors.surface),
-          IgnorePointer(
-            child: CustomPaint(
-              painter: _IrBackdropPainter(
-                color: context.irColors.text.withValues(
-                  alpha: Theme.of(context).brightness == Brightness.dark
-                      ? .055
-                      : .045,
-                ),
-                accent: context.irColors.accent.withValues(alpha: .16),
-              ),
-            ),
-          ),
-          child,
-        ],
-      );
-}
-
-class _IrBackdropPainter extends CustomPainter {
-  const _IrBackdropPainter({required this.color, required this.accent});
-
-  final Color color;
-  final Color accent;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final grid = Paint()
-      ..color = color
-      ..strokeWidth = 1;
-    const step = 48.0;
-    for (double x = -step; x < size.width + step; x += step) {
-      canvas.drawLine(Offset(x, 0), Offset(x, size.height), grid);
-    }
-    for (double y = 0; y < size.height + step; y += step) {
-      canvas.drawLine(Offset(0, y), Offset(size.width, y), grid);
-    }
-
-    final route = Paint()
-      ..color = accent
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2;
-    final path = Path()
-      ..moveTo(size.width * .78, -20)
-      ..cubicTo(size.width * .54, size.height * .2, size.width * 1.04,
-          size.height * .42, size.width * .72, size.height * .68)
-      ..cubicTo(size.width * .57, size.height * .8, size.width * .82,
-          size.height * .92, size.width * .62, size.height + 20);
-    canvas.drawPath(path, route);
-    canvas.drawCircle(Offset(size.width * .72, size.height * .68), 5,
-        Paint()..color = accent);
-  }
-
-  @override
-  bool shouldRepaint(covariant _IrBackdropPainter oldDelegate) =>
-      oldDelegate.color != color || oldDelegate.accent != accent;
+  Widget build(BuildContext context) =>
+      ColoredBox(color: context.irColors.surface, child: child);
 }
 
 class IrPageIntro extends StatelessWidget {
@@ -86,15 +30,6 @@ class IrPageIntro extends StatelessWidget {
   Widget build(BuildContext context) => Row(
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          Container(
-            width: 4,
-            height: 72,
-            decoration: BoxDecoration(
-              color: context.irColors.accent,
-              borderRadius: BorderRadius.circular(99),
-            ),
-          ),
-          const SizedBox(width: 16),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -107,8 +42,8 @@ class IrPageIntro extends StatelessWidget {
                     color: context.irColors.text,
                     fontSize: 30,
                     height: 1.02,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: -1.15,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: -.6,
                   ),
                 ),
                 const SizedBox(height: 9),
@@ -153,7 +88,7 @@ class IrPanel extends StatelessWidget {
       padding: padding,
       decoration: BoxDecoration(
         color: accent ? IrPalette.accent : colors.raised,
-        borderRadius: BorderRadius.circular(22),
+        borderRadius: BorderRadius.circular(16),
         border: Border.all(
           color: accent ? IrPalette.accent : colors.border,
         ),
@@ -165,7 +100,7 @@ class IrPanel extends StatelessWidget {
       button: true,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(22),
+        borderRadius: BorderRadius.circular(16),
         child: panel,
       ),
     );

@@ -115,6 +115,8 @@ void main() {
               child: const WelcomeScreen())));
       await tester.pump(const Duration(milliseconds: 700));
       final button = find.widgetWithText(FilledButton, 'Crear cuenta');
+      await tester.ensureVisible(button);
+      await tester.pumpAndSettle();
       final gesture = await tester.startGesture(tester.getCenter(button));
       await tester.pump(const Duration(milliseconds: 150));
       final scale = tester.widget<AnimatedScale>(
@@ -147,7 +149,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('welcome route keeps a short fade when motion is reduced',
+  testWidgets('welcome navigation remains usable when motion is reduced',
       (tester) async {
     await tester.pumpWidget(MaterialApp(
       theme: irDarkTheme(),
@@ -182,6 +184,20 @@ void main() {
     expect(find.byType(LinearProgressIndicator), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('account route preserves interactive iOS back navigation',
+      (tester) async {
+    await pumpScreen(tester, const WelcomeScreen());
+    final create = find.widgetWithText(FilledButton, 'Crear cuenta');
+    await tester.ensureVisible(create);
+    await tester.tap(create);
+    await tester.pumpAndSettle();
+    expect(find.byType(RegisterScreen), findsOneWidget);
+    await tester.dragFrom(const Offset(1, 350), const Offset(340, 0));
+    await tester.pumpAndSettle();
+    expect(find.byType(RegisterScreen), findsNothing);
+    expect(find.byType(WelcomeScreen), findsOneWidget);
+  }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
 
   testWidgets('brand logo keeps its proportions across responsive sizes',
       (tester) async {

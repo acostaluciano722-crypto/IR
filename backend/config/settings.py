@@ -178,6 +178,12 @@ SUPABASE_JWT_ISSUER = os.environ.get('SUPABASE_JWT_ISSUER') or f'{SUPABASE_URL}/
 SUPABASE_AUTH_REDIRECT_URL = os.environ.get('SUPABASE_AUTH_REDIRECT_URL', 'http://localhost:5353')
 SUPABASE_STORAGE_BUCKET = os.environ.get('SUPABASE_STORAGE_BUCKET', 'ir-profile-photos')
 SUPABASE_AUTH_ENABLED = bool(SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY)
+FACE_SERVICE_URL = os.environ.get('FACE_SERVICE_URL', '').rstrip('/')
+FACE_SERVICE_TOKEN = os.environ.get('FACE_SERVICE_TOKEN', '')
+FACE_SERVICE_TIMEOUT = float(os.environ.get('FACE_SERVICE_TIMEOUT', '45'))
+FACE_TEMPLATE_KEY = os.environ.get('FACE_TEMPLATE_KEY', '')
+FACE_VERIFICATION_REQUIRED = os.environ.get('FACE_VERIFICATION_REQUIRED', 'false').lower() in {'1', 'true', 'yes'}
+FACE_CONSENT_VERSION = '2026-11-03-v2'
 ALLOW_LEGACY_AUTH = os.environ.get(
     'ALLOW_LEGACY_AUTH', 'false' if SUPABASE_AUTH_ENABLED else 'true',
 ).lower() in {'1', 'true', 'yes'}

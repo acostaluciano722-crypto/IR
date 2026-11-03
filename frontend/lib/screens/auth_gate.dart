@@ -9,6 +9,7 @@ import '../ui/ir_components.dart';
 import '../ui/ir_auth_layout.dart';
 import 'complete_profile_screen.dart';
 import 'driver_home_screen.dart';
+import 'face_access_gate.dart';
 import 'passenger_home_screen.dart';
 import 'password_help_screen.dart';
 import 'welcome_screen.dart';
@@ -59,6 +60,14 @@ class _AuthGateState extends State<AuthGate> {
         _profile = _api.getCurrentUser();
       });
 
+  Future<void> _signOut() async {
+    try {
+      await _api.signOut();
+    } catch (_) {
+      if (mounted) _reload();
+    }
+  }
+
   @override
   void dispose() {
     _subscription?.cancel();
@@ -78,8 +87,11 @@ class _AuthGateState extends State<AuthGate> {
                   Center(child: IrLoadingState(label: 'Preparando tu cuenta')));
         }
         if (snapshot.error is ProfileRequiredException) {
-          return CompleteProfileScreen(api: _api, onSaved: _reload,
-              needsLegacyLink: snapshot.error is LegacyAccountLinkRequiredException);
+          return CompleteProfileScreen(
+              api: _api,
+              onSaved: _reload,
+              needsLegacyLink:
+                  snapshot.error is LegacyAccountLinkRequiredException);
         }
         if (snapshot.hasError) {
           return Scaffold(
@@ -109,9 +121,15 @@ class _AuthGateState extends State<AuthGate> {
           ))));
         }
         final user = snapshot.data!;
-        return user['role'] == 'driver'
-            ? DriverHomeScreen(api: _api, user: user)
-            : PassengerHomeScreen(api: _api, user: user);
+        return FaceAccessGate(
+          key: ValueKey(user['id']),
+          api: _api,
+          onProfileChanged: _reload,
+          onSignOut: _signOut,
+          child: user['role'] == 'driver'
+              ? DriverHomeScreen(api: _api, user: user)
+              : PassengerHomeScreen(api: _api, user: user),
+        );
       },
     );
   }

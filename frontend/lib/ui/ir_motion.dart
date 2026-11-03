@@ -3,9 +3,9 @@ import 'package:flutter/material.dart';
 abstract final class IrMotion {
   static const feedback = Duration(milliseconds: 120);
   static const transition = Duration(milliseconds: 220);
-  static const entrance = Duration(milliseconds: 420);
-  static const welcomeOpening = Duration(milliseconds: 620);
-  static const welcomeOpeningExit = Duration(milliseconds: 240);
+  static const entrance = Duration(milliseconds: 240);
+  static const welcomeOpening = Duration(milliseconds: 240);
+  static const welcomeOpeningExit = Duration(milliseconds: 160);
 
   static Duration duration(BuildContext context, Duration value) =>
       MediaQuery.disableAnimationsOf(context) ? Duration.zero : value;
@@ -17,9 +17,7 @@ abstract final class IrMotion {
         ? 1.0
         : states.contains(WidgetState.pressed)
             ? .97
-            : states.contains(WidgetState.hovered)
-                ? 1.015
-                : 1.0;
+            : 1.0;
     return AnimatedScale(
       scale: scale,
       duration: duration(context, feedback),

@@ -12,6 +12,7 @@ import '../ui/ir_motion.dart';
 import '../ui/ir_auth_layout.dart';
 import '../ui/ir_format.dart';
 import '../ui/ir_map_layout.dart';
+import '../ui/ir_mobility_navigation.dart';
 import '../ui/ir_map_route.dart';
 import '../ui/ir_map_symbols.dart';
 import 'welcome_screen.dart';
@@ -19,6 +20,7 @@ import 'bonus_screen.dart';
 import 'points_screen.dart';
 import 'role_section_screen.dart';
 import 'profile_screen.dart';
+import 'face_verification_screen.dart';
 
 class PassengerHomeScreen extends StatefulWidget {
   const PassengerHomeScreen({required this.api, required this.user, super.key});
@@ -31,6 +33,7 @@ class PassengerHomeScreen extends StatefulWidget {
 
 class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
   final _scaffoldKey = GlobalKey<ScaffoldState>();
+  final _desktopScrollController = ScrollController();
   bool _refreshingRides = false;
   int _searchVersion = 0;
   final _destination = TextEditingController();
@@ -67,7 +70,6 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
   bool _loading = false;
   bool _menuExpanded = false;
   bool _navigationCardCondensed = false;
-  bool _sheetAtTop = false;
   bool _keyboardOpen = false;
   double? _restingSheetSize;
   double? _mapSheetExtent;
@@ -107,6 +109,7 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
 
   @override
   void dispose() {
+    _desktopScrollController.dispose();
     _searchDebounce?.cancel();
     _rideRefreshTimer?.cancel();
     _nearbyDriversTimer?.cancel();
@@ -142,7 +145,9 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
   }
 
   Future<void> _loadNearbyDrivers() async {
-    if (!_hasInitialLocation || _destinationLocation == null || _activeRide != null) {
+    if (!_hasInitialLocation ||
+        _destinationLocation == null ||
+        _activeRide != null) {
       if (_nearbyDrivers.isNotEmpty && mounted) {
         setState(() => _nearbyDrivers = []);
       }
@@ -718,11 +723,12 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
   Future<void> _openMenuSection(String value) async {
     _scaffoldKey.currentState?.closeDrawer();
     if (value == 'logout') {
-      try { await widget.api.signOut(); }
-      catch (_) {
+      try {
+        await widget.api.signOut();
+      } catch (_) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('No pudimos cerrar la sesión. Intenta de nuevo.')));
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+              content: Text('No pudimos cerrar la sesión. Intenta de nuevo.')));
         }
         return;
       }
@@ -734,6 +740,17 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
       Navigator.of(context).pushAndRemoveUntil(
           MaterialPageRoute(builder: (_) => const WelcomeScreen()),
           (_) => false);
+      return;
+    }
+    if (value == 'face') {
+      await Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => FaceVerificationScreen(
+          api: widget.api,
+          onProfileChanged: () {
+            unawaited(_loadPassengerProfile());
+          },
+        ),
+      ));
       return;
     }
     if (value == 'profile') {
@@ -785,8 +802,8 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
   CameraUpdate _cameraForPoints(Iterable<LatLng> points,
           {double maxZoom = 18}) =>
       IrMapRoute.overview(points,
-          viewport: IrMapRoute.viewport(context),
-          obscured: IrMapRoute.padding(context,
+          viewport: IrMobilityLayout.mapViewport(context),
+          obscured: IrMobilityLayout.mapPadding(context,
               _mapSheetExtent ?? IrMapLayout.of(context).passengerResting),
           maxZoom: maxZoom);
 
@@ -921,7 +938,8 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
           anchor: const Offset(.5, .5),
           zIndexInt: 1,
           infoWindow: InfoWindow(
-            title: type.contains('moto') ? 'Moto disponible' : 'Carro disponible',
+            title:
+                type.contains('moto') ? 'Moto disponible' : 'Carro disponible',
             snippet: 'A ${vehicle['distance_km'] ?? '—'} km',
           ),
         ));
@@ -979,12 +997,142 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
     return markers;
   }
 
+  Widget _passengerSheet(IrMapLayout layout, ScrollController controller,
+          {bool desktop = false}) =>
+      PointerInterceptor(
+          child: _RideSheet(
+        desktop: desktop,
+        reserveToolbar: false,
+        layout: layout,
+        controller: controller,
+        sheetController: _rideSheetController,
+        destinationController: _destination,
+        origin: _origin.text,
+        vehicle: _vehicle,
+        loading: _loading,
+        message: _message,
+        route: _route,
+        rides: _rides,
+        points: _points,
+        tier: _tier,
+        suggestions: _suggestions,
+        nearbyPlaces: _nearbyPlaces,
+        activeRide: _activeRide,
+        onVehicleChanged: (value) => setState(() => _vehicle = value),
+        onSuggestionSelected: (place) => _selectDestination(
+            place['description'].toString(), place['place_id']?.toString()),
+        onNearbySelected: (place) => _selectDestination(
+            place['name'].toString(), place['place_id']?.toString()),
+        onQueryChanged: _onDestinationChanged,
+        fare:
+            _route == null ? null : _decreeFareFor(_destination.text, _vehicle),
+        onRequestRide: _requestRide,
+        onSelectOffer: _selectOffer,
+        onRejectOffer: _rejectOffer,
+        onCancelRide: _cancelRide,
+        onRateRide: _rateRide,
+        onSkipRating: _skipRideRating,
+      ));
+
+  Widget _passengerMap(IrMapLayout layout, {required bool desktop}) =>
+      Stack(children: [
+        Positioned.fill(
+            child: GoogleMap(
+          initialCameraPosition:
+              const CameraPosition(target: LatLng(10.405, -75.505), zoom: 14.5),
+          onMapCreated: _onMapCreated,
+          myLocationButtonEnabled: false,
+          myLocationEnabled: false,
+          zoomControlsEnabled: false,
+          scrollGesturesEnabled: true,
+          webGestureHandling: WebGestureHandling.greedy,
+          zoomGesturesEnabled: true,
+          rotateGesturesEnabled: true,
+          tiltGesturesEnabled: true,
+          markers: _passengerMarkers,
+          polylines: _routeLines,
+          style: context.irColors.light ? null : _googleMapStyle,
+        )),
+        Positioned(
+            top: 16,
+            right: 16,
+            child: PointerInterceptor(
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+              if (_overviewPoints.length >= 2) ...[
+                IrMapAction(
+                    icon: Icons.route_outlined,
+                    label: 'Ver recorrido completo',
+                    onPressed: _showRouteOverview),
+                const SizedBox(width: 8),
+              ],
+              IrMapAction(
+                  icon: Icons.my_location,
+                  label: 'Centrar en mi ubicación',
+                  onPressed: _recenterOnUser),
+            ]))),
+        if (_destination.text.isNotEmpty &&
+            !_menuExpanded &&
+            (desktop || !_navigationCardCondensed) &&
+            MediaQuery.viewInsetsOf(context).bottom == 0 &&
+            !{
+              'accepted',
+              'driver_selected',
+              'en_route',
+              'arrived',
+              'in_progress'
+            }.contains(_activeRide?['status']))
+          Positioned(
+              top: 82,
+              left: 16,
+              right: 16,
+              child: Align(
+                  alignment: Alignment.topCenter,
+                  child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 480),
+                      child: PointerInterceptor(
+                          child: _NavigationCard(
+                              destination: _destination.text,
+                              route: _route,
+                              nextStep: _nextStep(_route),
+                              condensed: false))))),
+        if (!desktop)
+          Positioned.fill(
+              child: NotificationListener<DraggableScrollableNotification>(
+                  onNotification: (notification) {
+                    _mapSheetExtent = notification.extent;
+                    final condensed = notification.extent >= .52;
+                    if (condensed != _navigationCardCondensed && mounted) {
+                      setState(() => _navigationCardCondensed = condensed);
+                    }
+                    return false;
+                  },
+                  child: Align(
+                      alignment: Alignment.bottomCenter,
+                      child: DraggableScrollableSheet(
+                        controller: _rideSheetController,
+                        expand: false,
+                        initialChildSize: layout.passengerResting,
+                        minChildSize: layout.passengerMinimum,
+                        maxChildSize: 1.0,
+                        snapSizes: layout.passengerSnapSizes,
+                        snap: true,
+                        builder: (context, controller) =>
+                            _passengerSheet(layout, controller),
+                      )))),
+      ]);
+
   @override
   Widget build(BuildContext context) {
     final layout = IrMapLayout.of(context);
+    final desktop = IrMobilityLayout.expanded(context);
     return Scaffold(
       key: _scaffoldKey,
       onDrawerChanged: (open) => setState(() => _menuExpanded = open),
+      appBar: IrMobilityAppBar(
+          title: 'Viajar',
+          photoUrl: _photoUrl,
+          onMenu: () => _scaffoldKey.currentState?.openDrawer(),
+          onProfile: () => _openMenuSection('profile')),
       drawer: Drawer(
           width: MediaQuery.sizeOf(context).width.clamp(0, 340).toDouble(),
           child: PointerInterceptor(
@@ -999,164 +1147,19 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
                   onClose: () => _scaffoldKey.currentState?.closeDrawer(),
                   onSectionSelected: _openMenuSection))),
       backgroundColor: context.irColors.surface,
-      body: SafeArea(
-        bottom: false,
-        child: Stack(children: [
-          Positioned.fill(
-            child: GoogleMap(
-              initialCameraPosition: const CameraPosition(
-                  target: LatLng(10.405, -75.505), zoom: 14.5),
-              onMapCreated: _onMapCreated,
-              myLocationButtonEnabled: false,
-              myLocationEnabled: false,
-              zoomControlsEnabled: false,
-              scrollGesturesEnabled: true,
-              webGestureHandling: WebGestureHandling.greedy,
-              zoomGesturesEnabled: true,
-              rotateGesturesEnabled: true,
-              tiltGesturesEnabled: true,
-              markers: _passengerMarkers,
-              polylines: _routeLines,
-              style: context.irColors.light ? null : _googleMapStyle,
-            ),
-          ),
-          Positioned(
-              top: 18,
-              right: 18,
-              child: PointerInterceptor(
-                  child: Row(mainAxisSize: MainAxisSize.min, children: [
-                if (_overviewPoints.length >= 2) ...[
-                  IrMapAction(
-                      icon: Icons.route_outlined,
-                      label: 'Ver recorrido completo',
-                      onPressed: _showRouteOverview),
-                  const SizedBox(width: 8),
-                ],
-                IrMapAction(
-                    icon: Icons.my_location,
-                    label: 'Centrar en mi ubicación',
-                    onPressed: _recenterOnUser),
-              ]))),
-          Positioned(
-            top: 84,
-            left: 20,
-            right: 20,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (_destination.text.isNotEmpty &&
-                    !_menuExpanded &&
-                    !_navigationCardCondensed &&
-                    MediaQuery.viewInsetsOf(context).bottom == 0 &&
-                    !{
-                      'accepted',
-                      'driver_selected',
-                      'en_route',
-                      'arrived',
-                      'in_progress',
-                    }.contains(_activeRide?['status'])) ...[
-                  const SizedBox(height: 8),
-                  Align(
-                    alignment: Alignment.topCenter,
-                    child: ConstrainedBox(
-                      constraints:
-                          BoxConstraints(maxWidth: layout.sheetMaxWidth),
-                      child: PointerInterceptor(
-                        child: _NavigationCard(
-                            destination: _destination.text,
-                            route: _route,
-                            nextStep: _nextStep(_route),
-                            condensed: _navigationCardCondensed),
-                      ),
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-          Positioned.fill(
-            child: NotificationListener<DraggableScrollableNotification>(
-              onNotification: (notification) {
-                _mapSheetExtent = notification.extent;
-                final condensed = notification.extent >= 0.52;
-                final atTop = notification.extent >= .88;
-                if ((condensed != _navigationCardCondensed ||
-                        atTop != _sheetAtTop) &&
-                    mounted) {
-                  setState(() {
-                    _navigationCardCondensed = condensed;
-                    _sheetAtTop = atTop;
-                  });
-                }
-                return false;
-              },
-              child: Align(
-                alignment: Alignment.bottomCenter,
-                child: DraggableScrollableSheet(
-                  controller: _rideSheetController,
-                  expand: false,
-                  initialChildSize: layout.passengerResting,
-                  minChildSize: layout.passengerMinimum,
-                  maxChildSize: 1.0,
-                  snapSizes: layout.passengerSnapSizes,
-                  snap: true,
-                  builder: (context, controller) => Align(
-                      alignment: Alignment.bottomCenter,
-                      child: ConstrainedBox(
-                          constraints:
-                              BoxConstraints(maxWidth: layout.sheetMaxWidth),
-                          child: PointerInterceptor(
-                              child: _RideSheet(
-                            reserveToolbar: _sheetAtTop,
-                            layout: layout,
-                            controller: controller,
-                            sheetController: _rideSheetController,
-                            destinationController: _destination,
-                            origin: _origin.text,
-                            vehicle: _vehicle,
-                            loading: _loading,
-                            message: _message,
-                            route: _route,
-                            rides: _rides,
-                            points: _points,
-                            tier: _tier,
-                            suggestions: _suggestions,
-                            nearbyPlaces: _nearbyPlaces,
-                            activeRide: _activeRide,
-                            onVehicleChanged: (value) =>
-                                setState(() => _vehicle = value),
-                            onSuggestionSelected: (place) => _selectDestination(
-                                place['description'].toString(),
-                                place['place_id']?.toString()),
-                            onNearbySelected: (place) => _selectDestination(
-                                place['name'].toString(),
-                                place['place_id']?.toString()),
-                            onQueryChanged: _onDestinationChanged,
-                            fare: _route == null
-                                ? null
-                                : _decreeFareFor(_destination.text, _vehicle),
-                            onRequestRide: _requestRide,
-                            onSelectOffer: _selectOffer,
-                            onRejectOffer: _rejectOffer,
-                            onCancelRide: _cancelRide,
-                            onRateRide: _rateRide,
-                            onSkipRating: _skipRideRating,
-                          )))),
-                ),
-              ),
-            ),
-          ),
-          Positioned(
-              top: 18,
-              left: 18,
-              child: PointerInterceptor(
-                  child: IrMapAction(
-                      icon: Icons.menu,
-                      label: 'Abrir menú',
-                      onPressed: () =>
-                          _scaffoldKey.currentState?.openDrawer()))),
-        ]),
-      ),
+      bottomNavigationBar: desktop || IrMobilityLayout.keyboardOpen(context)
+          ? null
+          : IrMobilityBottomNavigation(onSelected: _openMenuSection),
+      body: desktop
+          ? Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              IrMobilityRail(onSelected: _openMenuSection),
+              SizedBox(
+                  width: IrMobilityLayout.panelWidth,
+                  child: _passengerSheet(layout, _desktopScrollController,
+                      desktop: true)),
+              Expanded(child: _passengerMap(layout, desktop: true)),
+            ])
+          : _passengerMap(layout, desktop: false),
     );
   }
 }
@@ -1273,8 +1276,8 @@ class _PassengerSideBar extends StatelessWidget {
     ('history', 'Historial', Icons.history),
     ('support', 'Soporte', Icons.support_agent_outlined),
     ('profile', 'Perfil', Icons.person_outline),
+    ('face', 'Verificación facial', Icons.face_retouching_natural_outlined),
     ('settings', 'Configuración', Icons.settings_outlined),
-    ('logout', 'Cerrar sesión', Icons.logout),
   ];
 
   @override
@@ -1282,91 +1285,96 @@ class _PassengerSideBar extends StatelessWidget {
         color: context.irColors.surface,
         elevation: 0,
         child: SafeArea(
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
-            children: [
-              Row(children: [
-                const Expanded(child: IrBrandLogo(size: 42)),
-                IconButton(
-                    tooltip: 'Cerrar menú',
-                    onPressed: onClose,
-                    icon: Icon(Icons.close, color: context.irColors.muted)),
-              ]),
-              const SizedBox(height: 8),
-              CircleAvatar(
-                  radius: 28,
-                  backgroundColor: IrPalette.accent,
-                  backgroundImage: photoUrl == null ? null : NetworkImage(photoUrl!),
-                  child: photoUrl == null
-                      ? Icon(Icons.person, color: Color(0xFF171B1D), size: 30)
-                      : null),
-              const SizedBox(height: 10),
-              Text(user['name']?.toString() ?? 'Usuario IR',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                      color: context.irColors.text,
-                      fontSize: 20,
-                      fontWeight: FontWeight.w800)),
-              const SizedBox(height: 4),
-              Text('Nivel $tier · $points PI',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                      color: context.irColors.muted,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600)),
-              const SizedBox(height: 8),
-              Wrap(
-                alignment: WrapAlignment.center,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                runSpacing: 4,
-                children: [
-                  ...List.generate(
-                      5,
-                      (index) => Icon(
-                          index < rating.round()
-                              ? Icons.star
-                              : Icons.star_border,
-                          color: context.irColors.accent,
-                          size: 20)),
-                  const SizedBox(width: 8),
-                  Text(
-                      ratingCount == 0
-                          ? 'Sin calificaciones'
-                          : '${rating.toStringAsFixed(2)} ($ratingCount)',
-                      style: TextStyle(
-                          color: context.irColors.text,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700)),
-                ],
-              ),
-              const SizedBox(height: 3),
-              Text('$totalRides viajes realizados',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                      color: context.irColors.muted,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600)),
-              const SizedBox(height: 14),
-              Divider(color: context.irColors.border),
-              const SizedBox(height: 8),
-              ..._items.map((item) => Padding(
-                    padding: const EdgeInsets.only(bottom: 6),
-                    child: ListTile(
-                      minVerticalPadding: 8,
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(14)),
-                      leading: Icon(item.$3,
-                          color: context.irColors.accent, size: 24),
-                      title: Text(item.$2,
-                          style: TextStyle(
-                              color: context.irColors.text,
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600)),
-                      onTap: () => onSectionSelected(item.$1),
-                    ),
-                  )),
-            ],
-          ),
+          child: Column(children: [
+            Expanded(
+                child: ListView(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+              children: [
+                Row(children: [
+                  const Expanded(child: IrBrandLogo(size: 42)),
+                  IconButton(
+                      tooltip: 'Cerrar menú',
+                      onPressed: onClose,
+                      icon: Icon(Icons.close, color: context.irColors.muted)),
+                ]),
+                const SizedBox(height: 8),
+                CircleAvatar(
+                    radius: 28,
+                    backgroundColor: IrPalette.accent,
+                    backgroundImage:
+                        photoUrl == null ? null : NetworkImage(photoUrl!),
+                    child: photoUrl == null
+                        ? Icon(Icons.person, color: Color(0xFF171B1D), size: 30)
+                        : null),
+                const SizedBox(height: 10),
+                Text(user['name']?.toString() ?? 'Usuario IR',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                        color: context.irColors.text,
+                        fontSize: 20,
+                        fontWeight: FontWeight.w800)),
+                const SizedBox(height: 4),
+                Text('Nivel $tier · $points PI',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                        color: context.irColors.muted,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600)),
+                const SizedBox(height: 8),
+                Wrap(
+                  alignment: WrapAlignment.center,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  runSpacing: 4,
+                  children: [
+                    ...List.generate(
+                        5,
+                        (index) => Icon(
+                            index < rating.round()
+                                ? Icons.star
+                                : Icons.star_border,
+                            color: context.irColors.accent,
+                            size: 20)),
+                    const SizedBox(width: 8),
+                    Text(
+                        ratingCount == 0
+                            ? 'Sin calificaciones'
+                            : '${rating.toStringAsFixed(2)} ($ratingCount)',
+                        style: TextStyle(
+                            color: context.irColors.text,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700)),
+                  ],
+                ),
+                const SizedBox(height: 3),
+                Text('$totalRides viajes realizados',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                        color: context.irColors.muted,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600)),
+                const SizedBox(height: 14),
+                Divider(color: context.irColors.border),
+                const SizedBox(height: 8),
+                ..._items.map((item) => Padding(
+                      padding: const EdgeInsets.only(bottom: 6),
+                      child: ListTile(
+                        minVerticalPadding: 8,
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14)),
+                        leading: Icon(item.$3,
+                            color: context.irColors.accent, size: 24),
+                        title: Text(item.$2,
+                            style: TextStyle(
+                                color: context.irColors.text,
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600)),
+                        onTap: () => onSectionSelected(item.$1),
+                      ),
+                    )),
+              ],
+            )),
+            IrMobilityDrawerFooter(onLogout: () => onSectionSelected('logout')),
+          ]),
         ),
       );
 }
@@ -1374,6 +1382,7 @@ class _PassengerSideBar extends StatelessWidget {
 class _RideSheet extends StatelessWidget {
   const _RideSheet(
       {this.reserveToolbar = false,
+      this.desktop = false,
       required this.layout,
       required this.controller,
       required this.sheetController,
@@ -1402,6 +1411,7 @@ class _RideSheet extends StatelessWidget {
       required this.onSkipRating});
   final ScrollController controller;
   final bool reserveToolbar;
+  final bool desktop;
   final IrMapLayout layout;
   final DraggableScrollableController sheetController;
   final TextEditingController destinationController;
@@ -1432,19 +1442,22 @@ class _RideSheet extends StatelessWidget {
   Widget build(BuildContext context) => Container(
         decoration: BoxDecoration(
             color: context.irColors.surface,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(34)),
-            border: Border(
-                top: BorderSide(color: context.irColors.border, width: 1))),
+            borderRadius: desktop
+                ? BorderRadius.zero
+                : const BorderRadius.vertical(top: Radius.circular(20)),
+            border: desktop
+                ? Border(right: BorderSide(color: context.irColors.border))
+                : Border(top: BorderSide(color: context.irColors.border))),
         child: ListView(
             controller: controller,
             keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
             padding: EdgeInsets.fromLTRB(
                 layout.horizontalPadding,
-                reserveToolbar ? 76 : 10,
+                desktop ? 24 : (reserveToolbar ? 76 : 10),
                 layout.horizontalPadding,
                 24 + MediaQuery.viewPaddingOf(context).bottom),
             children: [
-              _RideSheetHandle(controller: sheetController),
+              if (!desktop) _RideSheetHandle(controller: sheetController),
               if (activeRide != null && message != null) ...[
                 IrInlineMessage(message: message!),
                 const SizedBox(height: 12)
@@ -1459,22 +1472,6 @@ class _RideSheet extends StatelessWidget {
                     onRateRide: onRateRide,
                     onSkipRating: onSkipRating)
               else ...[
-                Padding(
-                  padding: const EdgeInsets.only(left: 2, bottom: 12),
-                  child: Text('Elige cómo viajar',
-                      style: TextStyle(
-                          color: context.irColors.text,
-                          fontSize: 20,
-                          fontWeight: FontWeight.w900,
-                          letterSpacing: -.5)),
-                ),
-                _VehiclePicker(
-                    selected: vehicle,
-                    onChanged: onVehicleChanged,
-                    useGrid: layout.showVehicleGrid),
-                const SizedBox(height: 16),
-                _PointsCard(points: points, tier: tier),
-                const SizedBox(height: 14),
                 TextField(
                   controller: destinationController,
                   textInputAction: TextInputAction.search,
@@ -1488,8 +1485,8 @@ class _RideSheet extends StatelessWidget {
                           color: context.irColors.text,
                           fontSize: 16,
                           fontWeight: FontWeight.w700),
-                      prefixIcon: Icon(Icons.search,
-                          color: context.irColors.text, size: 31),
+                      prefixIcon: Icon(Icons.search_rounded,
+                          color: context.irColors.text, size: 25),
                       suffixIcon: destinationController.text.isEmpty
                           ? null
                           : IconButton(
@@ -1503,9 +1500,9 @@ class _RideSheet extends StatelessWidget {
                       filled: true,
                       fillColor: context.irColors.input,
                       border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(18),
+                          borderRadius: BorderRadius.circular(12),
                           borderSide: BorderSide.none),
-                      contentPadding: const EdgeInsets.symmetric(vertical: 18)),
+                      contentPadding: const EdgeInsets.symmetric(vertical: 17)),
                   onChanged: onQueryChanged,
                   onSubmitted: (_) {
                     if (!loading && route != null) onRequestRide();
@@ -1514,6 +1511,19 @@ class _RideSheet extends StatelessWidget {
                 ...suggestions.take(5).map((place) => _PlaceRow(
                     title: place['description'].toString(),
                     onTap: () => onSuggestionSelected(place))),
+                const SizedBox(height: 24),
+                Text('Elige cómo viajar',
+                    style: TextStyle(
+                        color: context.irColors.text,
+                        fontSize: 19,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: -.3)),
+                const SizedBox(height: 12),
+                _VehiclePicker(
+                    selected: vehicle,
+                    onChanged: onVehicleChanged,
+                    useGrid: desktop || layout.showVehicleGrid),
+                const SizedBox(height: 12),
                 if (route != null && fare != null)
                   _RouteSummary(route: route!, fare: fare!),
                 const SizedBox(height: 8),
@@ -1538,6 +1548,8 @@ class _RideSheet extends StatelessWidget {
                           : const Text('Elegir viaje',
                               style: TextStyle(fontWeight: FontWeight.w800))),
                 ],
+                const SizedBox(height: 18),
+                _PointsCard(points: points, tier: tier),
                 if (destinationController.text.trim().isEmpty &&
                     nearbyPlaces.any((place) => place['place_id'] != null)) ...[
                   const SizedBox(height: 20),
@@ -2012,8 +2024,8 @@ class _OfferTile extends StatelessWidget {
                         : '${(offer['driver_rating'] as num? ?? 0).toStringAsFixed(1)} / 5 · ${offer['driver_rating_count']} calificaciones · ${offer['vehicle_type'] ?? 'Vehículo'}',
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                        color: context.irColors.muted, fontSize: 11)),
+                    style:
+                        TextStyle(color: context.irColors.muted, fontSize: 11)),
               ])),
           if (enabled)
             Column(children: [
@@ -2412,7 +2424,7 @@ class _VehiclePicker extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final height = 86 + MediaQuery.textScalerOf(context).scale(16) * 1.5;
+    final height = 70 + MediaQuery.textScalerOf(context).scale(14) * 1.5;
     if (useGrid) {
       return SizedBox(
         height: height,
@@ -2431,10 +2443,8 @@ class _VehiclePicker extends StatelessWidget {
         itemCount: options.length,
         separatorBuilder: (_, __) => const SizedBox(width: 8),
         itemBuilder: (_, index) {
-          final active = options[index].$1 == selected;
-          final width = MediaQuery.textScalerOf(context).scale(16) > 22
-              ? (active ? 144.0 : 120.0)
-              : (active ? 116.0 : 88.0);
+          final width =
+              MediaQuery.textScalerOf(context).scale(16) > 22 ? 136.0 : 96.0;
           return _option(context, options[index], width);
         },
       ),
@@ -2449,7 +2459,7 @@ class _VehiclePicker extends StatelessWidget {
       button: true,
       label: option.$2,
       child: InkWell(
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(12),
         onTap: () => onChanged(option.$1),
         child: AnimatedContainer(
           duration:
@@ -2457,8 +2467,10 @@ class _VehiclePicker extends StatelessWidget {
           width: width,
           padding: const EdgeInsets.fromLTRB(8, 11, 8, 9),
           decoration: BoxDecoration(
-            color: active ? IrPalette.accent : context.irColors.raised,
-            borderRadius: BorderRadius.circular(20),
+            color: active
+                ? context.irColors.accent.withValues(alpha: .10)
+                : context.irColors.raised,
+            borderRadius: BorderRadius.circular(12),
             border: Border.all(
                 color:
                     active ? context.irColors.accent : context.irColors.border),
@@ -2466,16 +2478,15 @@ class _VehiclePicker extends StatelessWidget {
           child: Column(children: [
             Icon(option.$3,
                 color:
-                    active ? const Color(0xFF171B1D) : context.irColors.muted,
-                size: 34),
+                    active ? context.irColors.accent : context.irColors.muted,
+                size: 29),
             const SizedBox(height: 4),
             Text(option.$2,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
-                    color: active
-                        ? const Color(0xFF171B1D)
-                        : context.irColors.muted,
+                    color:
+                        active ? context.irColors.text : context.irColors.muted,
                     fontWeight: FontWeight.w700)),
           ]),
         ),
@@ -2543,37 +2554,21 @@ class _PointsCard extends StatelessWidget {
   final String tier;
 
   @override
-  Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 11),
-        decoration: BoxDecoration(
-            color: context.irColors.raised,
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: context.irColors.border)),
-        child: Row(children: [
-          Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                  color: IrPalette.accent,
-                  borderRadius: BorderRadius.circular(13)),
-              child: const Icon(Icons.stars, color: IrPalette.ink, size: 23)),
-          const SizedBox(width: 10),
-          Expanded(
-              child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                Text('ProMaster pasajero',
-                    style:
-                        TextStyle(color: context.irColors.muted, fontSize: 12)),
-                Text('$points PI · Nivel $tier',
-                    style: TextStyle(
-                        color: context.irColors.text,
-                        fontWeight: FontWeight.w800)),
-              ])),
-          Text('COP 20 = 1 PI',
-              style: TextStyle(color: context.irColors.muted, fontSize: 10)),
-        ]),
-      );
+  Widget build(BuildContext context) => Padding(
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Icon(Icons.stars_outlined, color: context.irColors.accent, size: 21),
+        const SizedBox(width: 10),
+        Expanded(
+            child: Text('$points PI · Nivel $tier',
+                style: TextStyle(
+                    color: context.irColors.text,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600))),
+        const SizedBox(width: 8),
+        Text('ProMaster',
+            style: TextStyle(color: context.irColors.muted, fontSize: 12)),
+      ]));
 }
 
 class _RecentRide extends StatelessWidget {
