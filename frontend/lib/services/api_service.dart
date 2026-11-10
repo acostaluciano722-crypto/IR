@@ -17,6 +17,18 @@ class ApiService {
   final String baseUrl;
   final http.Client? _client;
   String? token;
+
+  Future<Map<String, dynamic>> getDriverCompensation({bool plan = false}) async {
+    final response = await _get(
+        Uri.parse('$baseUrl/driver/compensation/${plan ? 'plan/' : ''}'),
+        headers: _headers);
+    final data = _decode(response);
+    if (response.statusCode != 200) {
+      throw ApiException(_errorMessage(data,
+          'No se pudo cargar el plan de compensación. Inténtalo de nuevo.'));
+    }
+    return data as Map<String, dynamic>;
+  }
   bool get usesSupabase => AppAuth.enabled;
   static final _faceGateEvents = StreamController<void>.broadcast();
   static DateTime? _lastFaceGateEvent;

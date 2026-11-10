@@ -950,7 +950,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
     final screen = value == 'points'
         ? PointsScreen(role: 'driver', points: _points, tier: _tier)
         : value == 'bonus'
-            ? BonusScreen(role: 'driver', points: _points, tier: _tier)
+            ? BonusScreen(role: 'driver', points: _points, tier: _tier, api: widget.api)
             : RoleSectionScreen(
                 title: _driverSectionTitle(value),
                 role: 'driver',

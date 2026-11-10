@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../services/api_service.dart';
+import 'driver_compensation_screen.dart';
 import '../ui/ir_components.dart';
 import '../ui/ir_page_body.dart';
 import '../ui/ir_theme.dart';
@@ -9,16 +11,21 @@ class BonusScreen extends StatelessWidget {
     required this.role,
     required this.points,
     required this.tier,
+    this.api,
     super.key,
   });
 
   final String role;
   final int points;
   final String tier;
+  final ApiService? api;
 
   @override
   Widget build(BuildContext context) {
     final isDriver = role == 'driver';
+    if (isDriver && api != null) {
+      return DriverCompensationScreen(api: api!);
+    }
     return Scaffold(
       appBar: AppBar(title: const Text('Bonificaciones')),
       body: IrEditorialBackdrop(

@@ -32,7 +32,7 @@ docker compose down
 
 `down` detiene los tres servicios del nuevo ecosistema. PostgreSQL sigue administrado por su instalación existente. Las fotos persisten en `backend/media` y Redis usa un volumen con AOF. Para cambios de código, vuelve a ejecutar `run_docker.ps1`; `-SkipBuild` reutiliza la imagen existente.
 
-Consulta [la guía de Docker](docs/docker.md) para configuración manual, pruebas, escalado y alcance de las tareas de ProMaster. El worker está preparado y comprobado; el motor de bonificaciones binomiales todavía no está implementado en el código actual.
+Consulta [la guía de Docker](docs/docker.md) para configuración manual, pruebas y escalado. El [plan de compensación de conductores](docs/compensacion-conductores.md) incluye PV por viaje, red binomial, grados, maestrías, cierres y abonos auditables. Los pagos que necesitan reglas contables aún no confirmadas permanecen bloqueados hasta configurarlas.
 
 ## Backend local (alternativa)
 

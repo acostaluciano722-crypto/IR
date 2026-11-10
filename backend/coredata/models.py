@@ -3,6 +3,12 @@ from django.db import models
 import os
 import uuid
 
+from .compensation_models import (  # noqa: F401 -- register managed audit models
+    CompensationAward, CompensationBranchCredit, CompensationControl,
+    CompensationFunding, CompensationIncentive, CompensationMember,
+    CompensationPV, CompensationPayout, CompensationPeriod,
+)
+
 
 class ExternalTable(models.Model):
     class Meta:

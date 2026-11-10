@@ -95,9 +95,9 @@ Los comandos de creación/conexión de red se ejecutan solo si todavía no exist
 
 ## Alcance de ProMaster
 
-La base contiene campos de red, rangos y bonificaciones, pero el código actual no incluye un algoritmo que calcule y liquide bonificaciones binomiales. Esta entrega prepara y verifica la infraestructura para ejecutarlo fuera del servidor HTTP. Los puntos individuales, la reserva/débito de Bolsa IR, el registro y los endpoints conservan su lógica actual.
+El [plan de compensación de conductores](compensacion-conductores.md) usa tablas privadas administradas por Django. Al validar un viaje se registra 1 PV por cada COP 1.000, separado de los PI existentes. La red registra el volumen por lado después de alcanzar 10.000 PV personales.
 
-Cuando se implemente el motor, las tareas deberán estar en una aplicación instalada, por ejemplo `coredata/tasks.py`, y enviarse después del commit de la operación que las origina mediante `delay_on_commit`. Para movimientos de dinero se necesitarán registros únicos por liquidación, bloqueos/transacciones y recuperación de envíos fallidos. No se agregaron porcentajes ni reglas de bonificación sin especificación.
+Los cierres usan el comando `manage.py compensation` y registran su política, fuentes, reservas y obligaciones de pago en una transacción. La tarea `coredata.credit_compensation_payouts` abona las obligaciones vencidas una sola vez al saldo de bonos. Puede programarse después de configurar y aprobar las reglas pendientes del PDF; no se activa un calendario financiero con supuestos. La reserva de educación, los regalos para pasajeros y la promoción quedan identificados, sin inventar beneficiarios o repartos.
 
 ## Configuración de despliegue
 

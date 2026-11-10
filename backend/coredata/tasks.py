@@ -7,6 +7,13 @@ from django.core.cache import cache
 from django.db import connection
 
 
+@shared_task(name='coredata.credit_compensation_payouts')
+def credit_compensation_payouts():
+    """Safe to schedule repeatedly; never invents financial close inputs."""
+    from coredata.compensation import credit_due_payouts
+    return {'credited': credit_due_payouts()}
+
+
 @shared_task(name='coredata.infrastructure_probe')
 def infrastructure_probe():
     """Verify the entire broker -> worker -> PostgreSQL/cache -> result path."""

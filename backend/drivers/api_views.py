@@ -13,6 +13,7 @@ from rest_framework.views import APIView
 from coredata.models import DriverProfile, DriverPresence, DriverTransaction, Ride, RideOffer, Vehicle, UserProfilePhoto
 from coredata.serializers import DriverStatusSerializer, RideSerializer, RideOfferCreateSerializer, WalletRechargeSerializer, offers_for_api, rides_for_api
 from passengers.api_views import _add_points, _name, _profile
+from coredata.compensation import lock_control, record_trip_pv
 
 
 def _driver(user):
@@ -289,6 +290,8 @@ class RideUpdateStatusView(APIView):
         if new_status not in valid_statuses:
             return Response({'detail': 'Estado inválido.'}, status=status.HTTP_400_BAD_REQUEST)
         with transaction.atomic():
+            if new_status == Ride.Status.VALIDATED:
+                lock_control()
             ride = get_object_or_404(
                 _ride_queryset(Ride.objects.select_for_update(of=('self',))),
                 api_id=ride_id, driver_profile=profile,
@@ -332,6 +335,8 @@ class RideUpdateStatusView(APIView):
                 ride.save(update_fields=['final_fare'])
             ride.status = new_status
             ride.save(update_fields=['status'])
+            if new_status == Ride.Status.VALIDATED:
+                record_trip_pv(ride)
         return Response({'status': ride.status, 'final_fare': ride.final_fare})
 
 

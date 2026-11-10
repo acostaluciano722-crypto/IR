@@ -11,9 +11,19 @@ from django.views.decorators.http import require_GET
 from redis.exceptions import RedisError
 from coredata.auth_views import CompleteProfileView, CurrentUserView, LegacyPasswordMigrationView, LinkLegacyAccountView
 from coredata.face_views import FaceChallengeView, FaceEnrollView, FaceStatusView, FaceVerifyView
+from coredata.compensation_views import CompensationMeView, CompensationPlanView, CompensationSourceView
 
 
 REQUIRED_API_TABLES = {
+    'ir_compensation_control',
+    'ir_compensation_member',
+    'ir_compensation_pv',
+    'ir_compensation_branch',
+    'ir_compensation_funding',
+    'ir_compensation_period',
+    'ir_compensation_payout',
+    'ir_compensation_award',
+    'ir_compensation_incentive',
     'historial_puntos',
     'ir_profile_photo',
     'ir_driver_presence',
@@ -76,6 +86,9 @@ def api_status(request):
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/health/', api_health, name='api-health'),
+    path('api/driver/compensation/', CompensationMeView.as_view(), name='compensation-me'),
+    path('api/driver/compensation/plan/', CompensationPlanView.as_view(), name='compensation-plan'),
+    path('api/driver/compensation/source/', CompensationSourceView.as_view(), name='compensation-source'),
     path('api/auth/me/', CurrentUserView.as_view(), name='auth-me'),
     path('api/auth/profile/', CompleteProfileView.as_view(), name='auth-profile'),
     path('api/auth/legacy-migrate/', LegacyPasswordMigrationView.as_view(), name='auth-legacy-migrate'),
