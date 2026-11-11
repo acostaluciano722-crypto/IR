@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import (CompensationAward, CompensationBranchCredit, CompensationControl,
+from .models import (BinaryPosition, CompensationAward, CompensationBranchCredit, CompensationControl,
                      CompensationFunding, CompensationIncentive, CompensationMember,
                      CompensationPV, CompensationPayout, CompensationPeriod)
 
@@ -18,7 +18,7 @@ class CompensationAuditAdmin(admin.ModelAdmin):
         return False
 
 
-for model in (CompensationAward, CompensationBranchCredit, CompensationControl,
+for model in (BinaryPosition, CompensationAward, CompensationBranchCredit, CompensationControl,
               CompensationFunding, CompensationIncentive, CompensationMember,
               CompensationPV, CompensationPayout, CompensationPeriod):
     admin.site.register(model, CompensationAuditAdmin)

@@ -1,5 +1,5 @@
 from django.urls import path
-from .views import DriverMeView, DriverPresenceView, DriverWalletTransactionsView, DriverAvailableRidesView, DriverRidesView, RideOfferAcceptView, RideOfferCreateView, RideRejectView, RideUpdateStatusView, RideVerifyPickupCodeView, WalletRechargeView
+from .api_views import DriverMeView, DriverPresenceView, DriverWalletTransactionsView, DriverAvailableRidesView, DriverRidesView, RideOfferAcceptView, RideOfferCreateView, RideRejectView, RideUpdateStatusView, RideVerifyPickupCodeView, WalletRechargeView
 
 urlpatterns = [
     path('me/', DriverMeView.as_view(), name='driver-me'),

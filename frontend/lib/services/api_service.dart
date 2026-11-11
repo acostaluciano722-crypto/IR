@@ -17,8 +17,10 @@ class ApiService {
   final String baseUrl;
   final http.Client? _client;
   String? token;
+  final _pendingGets = <String, Future<http.Response>>{};
 
-  Future<Map<String, dynamic>> getDriverCompensation({bool plan = false}) async {
+  Future<Map<String, dynamic>> getDriverCompensation(
+      {bool plan = false}) async {
     final response = await _get(
         Uri.parse('$baseUrl/driver/compensation/${plan ? 'plan/' : ''}'),
         headers: _headers);
@@ -29,6 +31,7 @@ class ApiService {
     }
     return data as Map<String, dynamic>;
   }
+
   bool get usesSupabase => AppAuth.enabled;
   static final _faceGateEvents = StreamController<void>.broadcast();
   static DateTime? _lastFaceGateEvent;
@@ -189,8 +192,8 @@ class ApiService {
           ..headers.addAll(_headers)
           ..files.add(
               http.MultipartFile.fromBytes('photo', bytes, filename: filename));
-    final response = await _request(() async {
-      final streamed = await request.send();
+    final response = await _mutate(() async {
+      final streamed = await (_client?.send(request) ?? request.send());
       return http.Response.fromStream(streamed);
     });
     final data = _decode(response);
@@ -301,6 +304,8 @@ class ApiService {
       throw FaceVerificationException(
           'No hay conexión con IR. Revisa tu conexión e intenta de nuevo.',
           code: 'service_unavailable');
+    } finally {
+      _pendingGets.clear();
     }
   }
 
@@ -665,22 +670,47 @@ class ApiService {
     }
   }
 
-  Future<http.Response> _get(Uri uri, {Map<String, String>? headers}) =>
-      _request(() =>
-          _client?.get(uri, headers: headers) ??
-          http.get(uri, headers: headers));
+  Future<http.Response> _get(Uri uri, {Map<String, String>? headers}) async {
+    final names = headers?.keys.toList() ?? <String>[];
+    names.sort();
+    final key = jsonEncode([
+      uri.toString(),
+      {for (final name in names) name: headers![name]}
+    ]);
+    final existing = _pendingGets[key];
+    if (existing != null) return existing;
+    // Share only an in-flight read. Completed responses are never cached.
+    final pending = _request(() =>
+        _client?.get(uri, headers: headers) ?? http.get(uri, headers: headers));
+    _pendingGets[key] = pending;
+    try {
+      return await pending;
+    } finally {
+      if (identical(_pendingGets[key], pending)) _pendingGets.remove(key);
+    }
+  }
+
+  Future<http.Response> _mutate(Future<http.Response> Function() send) async {
+    try {
+      return await _request(send);
+    } finally {
+      // A read started before a write must not absorb the next refresh.
+      _pendingGets.clear();
+    }
+  }
+
   Future<http.Response> _post(Uri uri,
           {Map<String, String>? headers, Object? body}) =>
-      _request(() =>
+      _mutate(() =>
           _client?.post(uri, headers: headers, body: body) ??
           http.post(uri, headers: headers, body: body));
   Future<http.Response> _patch(Uri uri,
           {Map<String, String>? headers, Object? body}) =>
-      _request(() =>
+      _mutate(() =>
           _client?.patch(uri, headers: headers, body: body) ??
           http.patch(uri, headers: headers, body: body));
   Future<http.Response> _delete(Uri uri, {Map<String, String>? headers}) =>
-      _request(() =>
+      _mutate(() =>
           _client?.delete(uri, headers: headers) ??
           http.delete(uri, headers: headers));
 
@@ -790,6 +820,7 @@ class ApiService {
   Future<void> signOut() async {
     if (usesSupabase) await AppAuth.client!.auth.signOut();
     token = null;
+    _pendingGets.clear();
   }
 
   dynamic _decode(http.Response response) {

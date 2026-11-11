@@ -9,21 +9,17 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
 from coredata.compensation import (CompensationError, close_period, credit_due_payouts,
-                                   lock_control, member_for, place_member, record_funding)
+                                   lock_control, member_for, record_funding)
 from coredata.compensation_plan import PLAN_VERSION
 from coredata.models import CompensationMember, DriverProfile
 
 
 class Command(BaseCommand):
-    help = 'Administra el plan PDF: estado, reglas, ubicación binaria, fondos, cierres y abonos.'
+    help = 'Administra el plan PDF: estado, reglas, inscripción automática, fondos, cierres y abonos.'
 
     def add_arguments(self, parser):
-        parser.add_argument('operation', choices=['status', 'configure', 'enroll', 'place', 'fund', 'close', 'credit'])
+        parser.add_argument('operation', choices=['status', 'configure', 'enroll', 'fund', 'close', 'credit'])
         parser.add_argument('--driver', help='UUID del perfil de conductor')
-        parser.add_argument('--member', help='Código del integrante')
-        parser.add_argument('--sponsor', help='Código del patrocinador')
-        parser.add_argument('--parent', help='Código del ancestro estructural')
-        parser.add_argument('--side', choices=['left', 'right'])
         parser.add_argument('--recharge', help='UUID de recarga real verificada')
         parser.add_argument('--net-profit')
         parser.add_argument('--evidence')
@@ -64,12 +60,6 @@ class Command(BaseCommand):
                 elif operation == 'enroll':
                     self.require(options, 'driver')
                     result = {'member': str(member_for(DriverProfile.objects.get(pk=options['driver'])).pk)}
-                elif operation == 'place':
-                    self.require(options, 'member', 'sponsor', 'parent', 'side')
-                    member = place_member(CompensationMember.objects.get(pk=options['member']),
-                        CompensationMember.objects.get(pk=options['sponsor']),
-                        CompensationMember.objects.get(pk=options['parent']), options['side'])
-                    result = {'placed': str(member.pk)}
                 elif operation == 'fund':
                     self.require(options, 'recharge', 'net_profit', 'evidence')
                     entry = record_funding(options['recharge'], options['net_profit'], options['evidence'])

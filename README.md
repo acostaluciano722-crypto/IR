@@ -2,6 +2,8 @@
 
 IR es una app de movilidad en Flutter con experiencias de pasajero y conductor y una API Django. El pasajero propone una tarifa y elige entre ofertas; el conductor responde solicitudes y administra su Bolsa IR.
 
+Pasajeros y conductores tienen **árboles binarios independientes**, ubicados automáticamente por orden de registro. Sus puntos y reglas de bonificación se mantienen separados. Consulta el [plan de conductores](docs/compensacion-conductores.md) y la [revisión de optimización](docs/optimizacion-sistema.md).
+
 ## Supabase y colaboración
 
 La base ya está migrada al proyecto **IR: APP DE MOVILIDAD** (`nligmbbebusjewxrghps`). Django y Celery usan PostgreSQL/PostGIS compartido, Flutter usa Supabase Auth y las fotos nuevas se guardan en Storage privado. La integración Google está preparada y requiere configurar su cliente OAuth. La configuración de VS Code, los ejemplos de entorno y las migraciones están versionados.

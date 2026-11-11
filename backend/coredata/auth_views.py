@@ -14,6 +14,8 @@ from rest_framework.views import APIView
 
 from coredata.authentication import INACTIVE_STATES
 from coredata.models import DriverProfile, PassengerProfile, SupabaseIdentity, Usuario, Vehicle
+from coredata.compensation import member_for
+from coredata.network import lock_control, position_for
 from coredata.supabase import SupabaseRequestError, SupabaseUnavailable, request_supabase, verified_auth_user, verify_access_token
 
 
@@ -85,6 +87,7 @@ class CompleteProfileView(APIView):
         names = data['name'].split(' ', 1)
         try:
             with transaction.atomic():
+                lock_control()
                 user = Usuario.objects.create(
                     id=auth_id, nombres=names[0], apellidos=names[1] if len(names) > 1 else '',
                     correo=email, celular=data['phone'], rol=data['role'],
@@ -103,6 +106,10 @@ class CompleteProfileView(APIView):
                         category=data['vehicle_type'], status='active',
                     )
                 SupabaseIdentity.objects.create(auth_user_id=auth_id, user=user)
+                if data['role'] == 'driver':
+                    member_for(profile)
+                else:
+                    position_for(user)
         except IntegrityError:
             return Response({'detail': 'El perfil ya existe. Actualiza la pantalla para continuar.'}, status=409)
         return Response(user_for_api(user), status=201)

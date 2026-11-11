@@ -32,12 +32,15 @@ from coredata.models import (
     Vehicle,
     UserProfilePhoto,
 )
+from coredata.compensation import member_for
+from coredata.network import lock_control, position_for
 from coredata.serializers import (
     LoginSerializer,
     RegisterSerializer,
     RideCreateSerializer,
     RideSerializer,
     offers_for_api,
+    rides_for_action,
     rides_for_api,
 )
 
@@ -162,12 +165,14 @@ class RegisterView(APIView):
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
         names = data['name'].split(' ', 1)
-        now = timezone.now()
+        password_hash = make_password(data['password'])
         with transaction.atomic():
+            lock_control()
+            now = timezone.now()
             user = Usuario.objects.create(
                 id=uuid.uuid4(), nombres=names[0], apellidos=names[1] if len(names) > 1 else '',
                 correo=data['identifier'], celular=data['phone'],
-                contrasena_hash=make_password(data['password']), rol=data['role'],
+                contrasena_hash=password_hash, rol=data['role'],
                 estado='active', fecha_creacion=now,
             )
             if data['role'] == 'passenger':
@@ -189,6 +194,10 @@ class RegisterView(APIView):
                     brand_model=data.get('vehicle_brand', ''),
                     color=data.get('vehicle_color', ''), status='active',
                 )
+            if data['role'] == 'driver':
+                member_for(profile)
+            else:
+                position_for(user)
         token = TOKEN_SIGNER.sign(str(user.pk))
         tier = profile.tier if isinstance(profile, DriverProfile) else (profile.rank.nombre if profile.rank_id else 'Inicial')
         return Response({
@@ -380,7 +389,7 @@ class RideListCreateView(generics.ListCreateAPIView):
 
 class RideOfferRejectView(APIView):
     def post(self, request, ride_id, offer_id):
-        ride = get_object_or_404(_ride_queryset(), api_id=ride_id, passenger_profile__user=request.user)
+        ride = get_object_or_404(rides_for_action(), api_id=ride_id, passenger_profile__user=request.user)
         offer = get_object_or_404(
             offers_for_api(RideOffer.objects.filter(ride=ride)), api_id=offer_id,
             status=RideOffer.Status.PENDING,
@@ -392,7 +401,7 @@ class RideOfferRejectView(APIView):
 
 class RideLocationView(APIView):
     def post(self, request, ride_id):
-        ride = get_object_or_404(_ride_queryset(), api_id=ride_id)
+        ride = get_object_or_404(rides_for_action(), api_id=ride_id)
         if request.user.pk not in {ride.passenger_profile.user_id if ride.passenger_profile_id else None, ride.driver_profile.user_id if ride.driver_profile_id else None}:
             return Response({'detail': 'No puedes actualizar la ubicación de este viaje.'}, status=status.HTTP_403_FORBIDDEN)
         try:
@@ -412,7 +421,7 @@ class RideOfferSelectView(APIView):
     def post(self, request, ride_id, offer_id):
         with transaction.atomic():
             ride = get_object_or_404(
-                _ride_queryset().select_for_update(of=('self',)), api_id=ride_id,
+                rides_for_action().select_for_update(of=('self',)), api_id=ride_id,
                 passenger_profile__user=request.user,
             )
             offer = get_object_or_404(
@@ -449,7 +458,7 @@ class RideRatingView(APIView):
         if not 1 <= rating <= 5:
             return Response({'detail': 'La calificación debe estar entre 1 y 5 estrellas.'}, status=status.HTTP_400_BAD_REQUEST)
         with transaction.atomic():
-            ride = get_object_or_404(_ride_queryset().select_for_update(of=('self',)), api_id=ride_id)
+            ride = get_object_or_404(rides_for_action().select_for_update(of=('self',)), api_id=ride_id)
             passenger_side = ride.passenger_profile.user_id == request.user.pk if ride.passenger_profile_id else False
             driver_side = ride.driver_profile.user_id == request.user.pk if ride.driver_profile_id else False
             if not passenger_side and not driver_side:
@@ -459,7 +468,9 @@ class RideRatingView(APIView):
             rating_field = 'passenger_rating' if passenger_side else 'driver_rating'
             if getattr(ride, rating_field) is not None:
                 return Response({'detail': 'Ya calificaste este viaje.'}, status=status.HTTP_409_CONFLICT)
-            profile = ride.driver_profile if passenger_side else ride.passenger_profile
+            profile_model = DriverProfile if passenger_side else PassengerProfile
+            profile_id = ride.driver_profile_id if passenger_side else ride.passenger_profile_id
+            profile = profile_model.objects.select_for_update().get(pk=profile_id)
             count = profile.rating_count or 0
             previous = float(profile.rating or 0)
             profile.rating = round((previous * count + rating) / (count + 1), 2)
@@ -474,7 +485,7 @@ class RideCancelView(APIView):
     def post(self, request, ride_id):
         with transaction.atomic():
             ride = get_object_or_404(
-                _ride_queryset().select_for_update(of=('self',)), api_id=ride_id,
+                rides_for_action().select_for_update(of=('self',)), api_id=ride_id,
                 passenger_profile__user=request.user,
             )
             cancellable = {

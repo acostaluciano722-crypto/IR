@@ -22,6 +22,7 @@ import django
 django.setup()
 
 from coredata.models import PassengerProfile, SupabaseIdentity, UserProfilePhoto, Usuario
+from coredata.network import release_temporary_position
 from coredata.supabase import SupabaseRequestError, request_supabase
 
 
@@ -105,6 +106,9 @@ def run():
         auth_settings = request_supabase('/auth/v1/settings')
         report['google_provider_enabled'] = auth_settings.get('external', {}).get('google', False)
     finally:
+        temporary_user = Usuario.objects.filter(pk=identity).first()
+        if temporary_user:
+            release_temporary_position(temporary_user)
         for photo_record in UserProfilePhoto.objects.filter(user_id=identity):
             photo_record.image.delete(save=False)
             photo_record.delete()

@@ -17,8 +17,9 @@ from django.db.models.functions import TruncDate
 from django.utils import timezone
 
 from .compensation_plan import COP_PER_PV, MASTERIES, PERSONAL_GATE, PLAN_VERSION, grade_for, money, split_funds
+from .network import NETWORK_VERSION, lock_control, position_for
 from .models import (
-    CompensationAward, CompensationBranchCredit, CompensationControl,
+    CompensationAward, CompensationBranchCredit,
     CompensationFunding, CompensationIncentive, CompensationMember, CompensationPV,
     CompensationPayout, CompensationPeriod, DriverProfile, DriverTransaction, UserBonus,
 )
@@ -31,14 +32,15 @@ class CompensationError(ValueError):
     pass
 
 
-def lock_control():
-    """Must be called inside atomic(), before locking legacy driver balances."""
-    CompensationControl.objects.get_or_create(pk=1)
-    return CompensationControl.objects.select_for_update().get(pk=1)
-
-
 def member_for(driver):
-    return CompensationMember.objects.get_or_create(driver=driver)[0]
+    existing = CompensationMember.objects.select_related('placement').filter(driver=driver).first()
+    if existing:
+        return existing
+    with transaction.atomic():
+        placement = position_for(driver.user)
+        if placement.network_role != 'driver':
+            raise CompensationError('El perfil no pertenece al árbol de conductores.')
+        return CompensationMember.objects.get_or_create(driver=driver, defaults={'placement': placement})[0]
 
 
 def _bounds(start, end):
@@ -66,32 +68,6 @@ def branch_pv(member, start=None, before=None):
 
 
 @transaction.atomic
-def place_member(member, sponsor, parent, side):
-    """Explicit operator placement: no invented spillover algorithm or reparenting."""
-    lock_control()
-    member.refresh_from_db()
-    if member.parent_id or member.sponsor_id or member.pv_events.exists():
-        raise CompensationError('La posición debe asignarse antes del primer PV y no puede cambiarse.')
-    if side not in {'left', 'right'} or member.pk in {sponsor.pk, parent.pk}:
-        raise CompensationError('Patrocinador, ancestro o lado inválido.')
-    ancestor, visited = parent, {member.pk}
-    sponsor_in_branch = False
-    while ancestor:
-        if ancestor.pk in visited:
-            raise CompensationError('La ubicación produciría un ciclo en la red.')
-        visited.add(ancestor.pk)
-        sponsor_in_branch |= ancestor.pk == sponsor.pk
-        ancestor = ancestor.parent
-    if not sponsor_in_branch:
-        raise CompensationError('La posición debe pertenecer a la estructura del patrocinador.')
-    if CompensationMember.objects.filter(parent=parent, side=side).exists():
-        raise CompensationError('Ese lado ya tiene un integrante.')
-    member.sponsor, member.parent, member.side = sponsor, parent, side
-    member.save(update_fields=['sponsor', 'parent', 'side'])
-    return member
-
-
-@transaction.atomic
 def record_trip_pv(ride, occurred_at=None):
     """Called within trip validation; neither recharges nor sandbox cash create PV."""
     control = lock_control()
@@ -115,17 +91,18 @@ def record_trip_pv(ride, occurred_at=None):
         occurred_at=now, evidence=f'Viaje validado; tarifa COP {fare}; 1 PV por COP 1000.',
         plan_version=PLAN_VERSION,
     )
-    child, visited, credits = member, {member.pk}, []
-    while child.parent_id:
-        parent = child.parent
-        if parent.pk in visited:
-            raise CompensationError('Se detectó un ciclo en la red.')
-        visited.add(parent.pk)
-        # Gate evaluated when this event occurs; no retroactive descendant PV.
-        if personal_pv(parent) >= PERSONAL_GATE:
-            credits.append(CompensationBranchCredit(event=event, member=parent,
-                                                     side=child.side, amount=event.amount))
-        child = parent
+    sides, child_number = {}, member.placement.number
+    while child_number > 1:
+        sides[child_number // 2] = 'left' if child_number % 2 == 0 else 'right'
+        child_number //= 2
+    ancestors = list(CompensationMember.objects.filter(placement__network_role='driver',
+        placement__number__in=sides).select_related('placement')) if sides else []
+    totals = {row['member']: row['total'] for row in CompensationPV.objects
+        .filter(member__in=ancestors).values('member').annotate(total=Sum('amount'))} if ancestors else {}
+    # Gates apply at event time; earlier descendant PV are never recovered.
+    credits = [CompensationBranchCredit(event=event, member=ancestor,
+        side=sides[ancestor.placement.number], amount=event.amount)
+        for ancestor in ancestors if totals.get(ancestor.pk, ZERO) >= PERSONAL_GATE]
     CompensationBranchCredit.objects.bulk_create(credits)
     control.last_pv_at = now
     control.save(update_fields=['last_pv_at', 'updated_at'])
@@ -178,12 +155,14 @@ def mastery_levels(members, start, before):
     personal = {row['member']: row['total'] for row in CompensationPV.objects
         .filter(occurred_at__gte=start, occurred_at__lt=before)
         .values('member').annotate(total=Sum('amount'))}
-    by_id = {member.pk: member for member in members}
+    by_number = {member.placement.number: member for member in members}
+    parents = {member.pk: by_number[member.placement.parent_number].pk
+               if member.placement.parent_number in by_number else None for member in members}
     children = {member.pk: {} for member in members}
     histograms = {member.pk: [0] * 8 for member in members}
     for member in members:
-        if member.parent_id:
-            children[member.parent_id][member.side] = member.pk
+        if parents[member.pk]:
+            children[parents[member.pk]][member.placement.side] = member.pk
         if held.get(member.pk):
             histograms[member.pk][held[member.pk]] = 1
     waiting = {pk: len(sides) for pk, sides in children.items()}
@@ -192,7 +171,7 @@ def mastery_levels(members, start, before):
     while leaves:
         pk = leaves.popleft()
         processed += 1
-        parent_id = by_id[pk].parent_id
+        parent_id = parents[pk]
         if parent_id:
             histograms[parent_id] = [a + b for a, b in zip(histograms[parent_id], histograms[pk])]
             waiting[parent_id] -= 1
@@ -219,7 +198,7 @@ def mastery_levels(members, start, before):
 
 
 def mastery_level(member, start, before):
-    return mastery_levels(list(CompensationMember.objects.all()), start, before)[member.pk]
+    return mastery_levels(list(CompensationMember.objects.select_related('placement')), start, before)[member.pk]
 
 
 def _weighted_shares(budget, weights):
@@ -291,12 +270,21 @@ def close_period(kind, start, end, payable_on):
     if kind == 'mastery' and control.mastery_base != 'fund_25_percent':
         raise CompensationError('Debe aprobarse la base monetaria de las maestrías.')
     lower, upper = _bounds(start, end)
-    funding = list(CompensationFunding.objects.filter(occurred_at__gte=lower, occurred_at__lt=upper))
-    # Split EACH source once; every fund remains within its original envelope.
-    funds = {key: sum((split_funds(item.net_profit)[key] for item in funding), ZERO)
-             for key in split_funds(0)}
+    funding = CompensationFunding.objects.filter(occurred_at__gte=lower, occurred_at__lt=upper)
+    funds, mastery_budgets, funding_ids, net_profit = split_funds(0), [ZERO] * 7, [], ZERO
+    # Stream scalar inputs; evidence text and ORM instances aren't needed here.
+    # Split each source once and preserve the original per-source rounding.
+    for pk, profit in funding.order_by('pk').values_list('pk', 'net_profit').iterator(chunk_size=1000):
+        allocations = split_funds(profit)
+        for key, value in allocations.items():
+            funds[key] += value
+        if kind == 'mastery':
+            for index, mastery in enumerate(MASTERIES):
+                mastery_budgets[index] += money(allocations['envelope'] * Decimal(mastery.rate))
+        funding_ids.append(str(pk))
+        net_profit += profit
     budget = funds['drivers' if kind == 'weekly' else 'mastery']
-    members = list(CompensationMember.objects.select_related('driver__user').order_by('pk'))
+    members = list(CompensationMember.objects.select_related('placement').order_by('placement__number'))
     basis, levels, shares = {}, {}, {}
     if kind == 'weekly':
         weights = weekly_scores(members, start, end)
@@ -306,30 +294,33 @@ def close_period(kind, start, end, payable_on):
         levels = mastery_levels(members, lower, upper)
         for level, mastery in enumerate(MASTERIES, 1):
             eligible = {pk: 1 for pk, held in levels.items() if held == level}
-            level_budget = sum((money(split_funds(item.net_profit)['envelope'] * Decimal(mastery.rate))
-                                for item in funding), ZERO)
+            level_budget = mastery_budgets[level - 1]
             shares.update(_weighted_shares(level_budget, eligible))
         basis = {pk: {'mastery_level': level} for pk, level in levels.items()}
     distributed = sum(shares.values(), ZERO)
     if distributed > budget:
         raise CompensationError('El reparto excede el fondo permitido.')
     period = CompensationPeriod.objects.create(kind=kind, start=start, end=end,
-        payable_on=payable_on, net_profit=sum((item.net_profit for item in funding), ZERO),
+        payable_on=payable_on, net_profit=net_profit,
         budget=budget, distributed=distributed,
         reserves={**{key: str(value) for key, value in funds.items()},
-                  'unallocated': str(budget - distributed), 'funding_ids': [str(item.pk) for item in funding]},
-        policy_snapshot={key: getattr(control, key) for key in required}, plan_version=PLAN_VERSION)
+                  'unallocated': str(budget - distributed), 'funding_ids': funding_ids},
+        policy_snapshot={**{key: getattr(control, key) for key in required},
+                         'network_version': NETWORK_VERSION}, plan_version=PLAN_VERSION)
     if kind == 'mastery':
-        for member in members:
-            level = levels[member.pk]
-            if level:
-                CompensationAward.objects.create(member=member, period=period, level=level)
-                CompensationIncentive.objects.get_or_create(member=member, level=level,
-                    defaults={'description': MASTERIES[level - 1].incentive})
+        qualified = [(member.pk, levels[member.pk]) for member in members if levels[member.pk]]
+        CompensationAward.objects.bulk_create([
+            CompensationAward(member_id=pk, period=period, level=level) for pk, level in qualified
+        ], batch_size=1000)
+        existing_incentives = set(CompensationIncentive.objects.values_list('member_id', 'level')) if qualified else set()
+        CompensationIncentive.objects.bulk_create([
+            CompensationIncentive(member_id=pk, level=level, description=MASTERIES[level - 1].incentive)
+            for pk, level in qualified if (pk, level) not in existing_incentives
+        ], batch_size=1000)
     CompensationPayout.objects.bulk_create([
         CompensationPayout(member_id=pk, period=period, amount=value, basis=basis[pk])
         for pk, value in shares.items() if value > 0
-    ])
+    ], batch_size=1000)
     return period
 
 
@@ -338,21 +329,28 @@ def credit_due_payouts():
     """A repeatable command/task: mature liabilities into bonus balance once."""
     lock_control()
     today = timezone.localdate(timezone.now(), BOGOTA)
-    payouts = list(CompensationPayout.objects.select_related('member__driver', 'period')
+    payouts = list(CompensationPayout.objects.select_related('member', 'period')
                    .filter(credited_at__isnull=True, period__payable_on__lte=today)
                    .order_by('member__driver_id', 'pk'))
+    if not payouts:
+        return 0
+    drivers = {driver.pk: driver for driver in DriverProfile.objects.select_for_update()
+               .filter(pk__in={p.member.driver_id for p in payouts}).order_by('pk')}
+    bonuses, now = [], timezone.now()
     for payout in payouts:
-        driver = DriverProfile.objects.select_for_update().get(pk=payout.member.driver_id)
+        driver = drivers[payout.member.driver_id]
         balance = (driver.bonus_balance or ZERO) + payout.amount
         # Legacy column is numeric(10,2); never overflow or partially credit.
         if balance > Decimal('99999999.99'):
             raise CompensationError('El saldo de bonos excede la capacidad de la cuenta; requiere conciliación.')
         driver.bonus_balance = balance
-        driver.save(update_fields=['bonus_balance'])
-        payout.legacy_bonus = UserBonus.objects.create(id=uuid.uuid4(), user_id=driver.user_id,
+        payout.legacy_bonus = UserBonus(id=uuid.uuid4(), user_id=driver.user_id,
             network_role='driver', reason=f'Plan PDF {payout.period.kind}',
             generated_points=0, liquidated_amount=payout.amount,
-            status='liquidated', closed_at=timezone.now())
-        payout.credited_at = timezone.now()
-        payout.save(update_fields=['legacy_bonus', 'credited_at'])
+            status='liquidated', closed_at=now)
+        bonuses.append(payout.legacy_bonus)
+        payout.credited_at = now
+    UserBonus.objects.bulk_create(bonuses, batch_size=1000)
+    DriverProfile.objects.bulk_update(list(drivers.values()), ['bonus_balance'], batch_size=1000)
+    CompensationPayout.objects.bulk_update(payouts, ['legacy_bonus', 'credited_at'], batch_size=1000)
     return len(payouts)

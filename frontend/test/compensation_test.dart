@@ -23,7 +23,13 @@ class CompensationApi extends ApiService {
     'mastery_right_pv': '1000000',
     'bonus_balance': '1080.01',
     'member_code': '1f7ef47d-5cf5-4945-b089-087417fc5a8d',
-    'has_sponsor': false,
+    'network': {
+      'role': 'driver',
+      'position': 2,
+      'parent_position': 1,
+      'side': 'left',
+      'depth': 1
+    },
     'pending_rules': ['Fórmula de utilidad neta'],
     'payouts': [
       {

@@ -25,27 +25,51 @@ class CompensationControl(models.Model):
         db_table = 'ir_compensation_control'
 
 
+class BinaryPosition(models.Model):
+    """Two independent, complete binary trees, indexed in registration order.
+
+    Parent = number // 2; children = 2 * number and 2 * number + 1.
+    No editable ancestor, sponsor or side can create a second topology.
+    """
+
+    user = models.OneToOneField('coredata.Usuario', on_delete=models.PROTECT,
+                                 primary_key=True, related_name='binary_position')
+    network_role = models.CharField(max_length=10, choices=[('driver', 'Conductor'), ('passenger', 'Pasajero')])
+    number = models.PositiveBigIntegerField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'ir_binary_position'
+        constraints = [
+            models.UniqueConstraint(fields=['network_role', 'number'], name='ir_network_number_unique'),
+            models.CheckConstraint(condition=models.Q(number__gte=1), name='ir_network_number_positive'),
+            models.CheckConstraint(condition=models.Q(network_role__in=['driver', 'passenger']),
+                                   name='ir_network_role_valid'),
+        ]
+
+    @property
+    def parent_number(self):
+        return self.number // 2 or None
+
+    @property
+    def side(self):
+        return '' if self.number == 1 else ('left' if self.number % 2 == 0 else 'right')
+
+    @property
+    def depth(self):
+        return self.number.bit_length() - 1
+
+
 class CompensationMember(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     driver = models.OneToOneField('coredata.DriverProfile', on_delete=models.PROTECT,
                                    related_name='compensation')
-    sponsor = models.ForeignKey('self', on_delete=models.PROTECT, null=True, blank=True,
-                                 related_name='sponsored_members')
-    parent = models.ForeignKey('self', on_delete=models.PROTECT, null=True, blank=True,
-                                related_name='children')
-    side = models.CharField(max_length=5, blank=True, choices=[('left', 'Izquierdo'), ('right', 'Derecho')])
+    placement = models.OneToOneField(BinaryPosition, on_delete=models.PROTECT,
+                                     related_name='compensation_member')
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         db_table = 'ir_compensation_member'
-        constraints = [
-            models.UniqueConstraint(fields=['parent', 'side'], name='ir_binary_position_unique'),
-            models.CheckConstraint(condition=(models.Q(parent__isnull=True, side='') |
-                (models.Q(parent__isnull=False) & models.Q(side__in=['left', 'right']))),
-                name='ir_binary_position_valid'),
-            models.CheckConstraint(condition=~models.Q(parent=models.F('id')), name='ir_no_self_parent'),
-            models.CheckConstraint(condition=~models.Q(sponsor=models.F('id')), name='ir_no_self_sponsor'),
-        ]
 
 
 class CompensationPV(models.Model):

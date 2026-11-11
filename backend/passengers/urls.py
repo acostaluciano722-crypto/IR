@@ -1,5 +1,5 @@
 from django.urls import path
-from .views import LoginView, NearbyPlacesView, PassengerMeView, ProfilePhotoView, PlaceDetailsView, PlaceSearchView, RegisterView, RideCancelView, RideListCreateView, RideLocationView, RideOfferRejectView, RideOfferSelectView, RideRatingView, RouteEstimateView
+from .api_views import LoginView, NearbyPlacesView, PassengerMeView, ProfilePhotoView, PlaceDetailsView, PlaceSearchView, RegisterView, RideCancelView, RideListCreateView, RideLocationView, RideOfferRejectView, RideOfferSelectView, RideRatingView, RouteEstimateView
 
 urlpatterns = [
     path('auth/login/', LoginView.as_view(), name='login'),

@@ -11,10 +11,11 @@ from django.views.decorators.http import require_GET
 from redis.exceptions import RedisError
 from coredata.auth_views import CompleteProfileView, CurrentUserView, LegacyPasswordMigrationView, LinkLegacyAccountView
 from coredata.face_views import FaceChallengeView, FaceEnrollView, FaceStatusView, FaceVerifyView
-from coredata.compensation_views import CompensationMeView, CompensationPlanView, CompensationSourceView
+from coredata.compensation_views import BinaryNetworkMeView, CompensationMeView, CompensationPlanView, CompensationSourceView
 
 
 REQUIRED_API_TABLES = {
+    'ir_binary_position',
     'ir_compensation_control',
     'ir_compensation_member',
     'ir_compensation_pv',
@@ -86,6 +87,7 @@ def api_status(request):
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/health/', api_health, name='api-health'),
+    path('api/network/', BinaryNetworkMeView.as_view(), name='network-me'),
     path('api/driver/compensation/', CompensationMeView.as_view(), name='compensation-me'),
     path('api/driver/compensation/plan/', CompensationPlanView.as_view(), name='compensation-plan'),
     path('api/driver/compensation/source/', CompensationSourceView.as_view(), name='compensation-source'),

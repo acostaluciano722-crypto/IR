@@ -86,6 +86,17 @@ class SupabaseProfileTests(TestCase):
         user.refresh_from_db()
         self.assertEqual(user.rol, 'passenger')
         self.assertEqual(PassengerProfile.objects.count(), 1)
+        from coredata.models import BinaryPosition
+        self.assertEqual(BinaryPosition.objects.get(user=user).network_role, 'passenger')
+
+    def test_verified_driver_is_placed_before_opening_compensation(self):
+        from coredata.models import BinaryPosition, CompensationMember
+        response = self.post(role='driver', document_number='1234', vehicle_type='moto', vehicle_plate='TEST1')
+        self.assertEqual(response.status_code, 201, response.content)
+        position = BinaryPosition.objects.get(user_id=self.auth_id)
+        self.assertEqual(position.network_role, 'driver')
+        self.assertEqual(position.number, 1)
+        self.assertEqual(CompensationMember.objects.get(placement=position).driver.user_id, position.user_id)
 
     def test_admin_role_and_unconfirmed_email_are_rejected(self):
         self.assertEqual(self.post(role='admin').status_code, 400)

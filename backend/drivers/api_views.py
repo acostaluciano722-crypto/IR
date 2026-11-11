@@ -11,7 +11,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from coredata.models import DriverProfile, DriverPresence, DriverTransaction, Ride, RideOffer, Vehicle, UserProfilePhoto
-from coredata.serializers import DriverStatusSerializer, RideSerializer, RideOfferCreateSerializer, WalletRechargeSerializer, offers_for_api, rides_for_api
+from coredata.serializers import DriverStatusSerializer, RideSerializer, RideOfferCreateSerializer, WalletRechargeSerializer, offers_for_api, rides_for_action, rides_for_api
 from passengers.api_views import _add_points, _name, _profile
 from coredata.compensation import lock_control, record_trip_pv
 
@@ -22,10 +22,6 @@ def _driver(user):
 
 def _ride_queryset(queryset=None):
     return rides_for_api(queryset if queryset is not None else Ride.objects.all())
-
-
-def _ride_for_response(ride):
-    return _ride_queryset().get(pk=ride.pk)
 
 
 def _reserve_amount(amount):
@@ -88,7 +84,7 @@ class DriverAvailableRidesView(APIView):
             status__in=(Ride.Status.SEARCHING, Ride.Status.REQUESTED, Ride.Status.NEGOTIATING),
             created_at__isnull=False,
             created_at__gte=cutoff,
-        ).exclude(offers__driver_profile=profile).distinct())
+        ).exclude(offers__driver_profile=profile))
         now = timezone.now()
         results = RideSerializer(rides, many=True).data
         for ride_data, ride in zip(results, rides):
@@ -181,7 +177,7 @@ class RideOfferCreateView(APIView):
         amount = serializer.validated_data['amount']
         with transaction.atomic():
             ride = get_object_or_404(
-                _ride_queryset(Ride.objects.select_for_update(of=('self',))), api_id=ride_id
+                rides_for_action(Ride.objects.select_for_update(of=('self',))), api_id=ride_id
             )
             if not ride.created_at or timezone.now() >= _aware_datetime(ride.created_at) + timedelta(minutes=5):
                 return Response({'detail': 'La ventana de esta solicitud expiró.'}, status=status.HTTP_409_CONFLICT)
@@ -217,7 +213,7 @@ class RideOfferAcceptView(APIView):
             return Response({'detail': 'Solo los conductores pueden aceptar solicitudes.'}, status=status.HTTP_403_FORBIDDEN)
         with transaction.atomic():
             ride = get_object_or_404(
-                _ride_queryset(Ride.objects.select_for_update(of=('self',))), api_id=ride_id
+                rides_for_action(Ride.objects.select_for_update(of=('self',))), api_id=ride_id
             )
             if not ride.created_at or timezone.now() >= _aware_datetime(ride.created_at) + timedelta(minutes=5):
                 return Response({'detail': 'La ventana de esta solicitud expiró.'}, status=status.HTTP_409_CONFLICT)
@@ -247,7 +243,7 @@ class RideRejectView(APIView):
         profile = _require_driver(request)
         if not profile:
             return Response({'detail': 'Solo los conductores pueden rechazar solicitudes.'}, status=status.HTTP_403_FORBIDDEN)
-        ride = get_object_or_404(_ride_queryset(), api_id=ride_id)
+        ride = get_object_or_404(rides_for_action(), api_id=ride_id)
         if ride.status not in (Ride.Status.SEARCHING, Ride.Status.REQUESTED, Ride.Status.NEGOTIATING):
             return Response({'detail': 'Esta solicitud ya no está disponible.'}, status=status.HTTP_409_CONFLICT)
         RideOffer.objects.get_or_create(
@@ -268,7 +264,7 @@ class RideVerifyPickupCodeView(APIView):
         code = str(request.data.get('code', '')).strip().upper()
         with transaction.atomic():
             ride = get_object_or_404(
-                _ride_queryset(Ride.objects.select_for_update(of=('self',))),
+                rides_for_action(Ride.objects.select_for_update(of=('self',))),
                 api_id=ride_id, driver_profile=profile,
             )
             if ride.status != Ride.Status.ARRIVED:
@@ -293,7 +289,7 @@ class RideUpdateStatusView(APIView):
             if new_status == Ride.Status.VALIDATED:
                 lock_control()
             ride = get_object_or_404(
-                _ride_queryset(Ride.objects.select_for_update(of=('self',))),
+                rides_for_action(Ride.objects.select_for_update(of=('self',))),
                 api_id=ride_id, driver_profile=profile,
             )
             if ride.status == Ride.Status.VALIDATED:

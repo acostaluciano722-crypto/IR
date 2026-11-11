@@ -74,6 +74,8 @@ def run():
             request_supabase('/auth/v1/logout', method='POST', token=refreshed['access_token'])
             report['sign_out'] = 'ok'
     finally:
+        from coredata.network import release_temporary_position
+        release_temporary_position(user)
         PassengerProfile.objects.filter(user=user).delete()
         SupabaseIdentity.objects.filter(user=user).delete()
         Usuario.objects.filter(pk=user.pk).delete()

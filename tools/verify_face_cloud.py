@@ -78,6 +78,10 @@ def run():
         report['hosted_templates_table_private_and_rls_enabled'] = True
         request_supabase('/auth/v1/logout', method='POST', token=token)
     finally:
+        from coredata.network import release_temporary_position
+        temporary_user = Usuario.objects.filter(pk=identity).first()
+        if temporary_user:
+            release_temporary_position(temporary_user)
         FaceEnrollment.objects.filter(user_id=identity).delete()
         for photo in UserProfilePhoto.objects.filter(user_id=identity):
             photo.image.delete(save=False)

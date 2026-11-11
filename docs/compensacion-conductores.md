@@ -10,6 +10,26 @@ Ejemplo: una recarga de COP 20.000 y un viaje de COP 10.000 dejan COP 19.000 en 
 
 La comisión general exige alcanzar las metas de la red binomial. Los PV descendentes empiezan a registrarse para un ancestro cuando ya tiene 10.000 PV personales; los anteriores no se recuperan retroactivamente. La red de este documento corresponde a conductores.
 
+## Árboles automáticos por orden de registro
+
+Por la decisión del usuario del 10 de noviembre de 2026, se reemplazó la ubicación por referidos por **dos árboles independientes**: conductores y pasajeros. Cada árbol se llena por niveles y de izquierda a derecha. La numeración de uno no consume lugares en el otro.
+
+| Posición dentro del rol | Posición del padre | Lado |
+| ---: | ---: | --- |
+| 1 | — | Raíz |
+| 2 | 1 | Izquierdo |
+| 3 | 1 | Derecho |
+| 4 | 2 | Izquierdo |
+| 5 | 2 | Derecho |
+| 6 | 3 | Izquierdo |
+| 7 | 3 | Derecho |
+
+Las cuentas existentes se ordenan por `usuario.fecha_creacion`; un empate se resuelve por UUID y las cuentas sin fecha se colocan al final de la carga inicial. Las nuevas cuentas reciben su lugar al completar el registro de su perfil IR, tanto con el registro anterior como con Supabase Auth. Una cuenta Auth que todavía no ha completado el perfil no ocupa una posición de dominio. El bloqueo se adquiere antes de crear la cuenta y registrar su fecha: altas concurrentes no pueden duplicar números ni adelantarse a una transacción anterior.
+
+El padre y el lado se calculan a partir del número: padre `n // 2`; hijos `2n` y `2n + 1`. No existen un patrocinador o un padre editables en la estructura activa. La posición no depende de abrir Bonificaciones, acumular puntos o completar el primer viaje. Repetir una solicitud no asigna un lugar adicional.
+
+**Estar arriba no basta para bonificar.** El conductor mantiene su requisito personal de 10.000 PV y las condiciones personales/grupales de cada grado. Los puntos y condiciones de pasajeros siguen separados: este cambio no convierte sus PI en PV del conductor, no les aplica los tabuladores de este PDF y no inventa una fórmula de bonificación de pasajeros. Los movimientos financieros y PV históricos conservan sus identificadores; la nueva estructura se utiliza para los eventos posteriores, sin recalcular pagos o volúmenes descendentes anteriores.
+
 ## Distribución del PDF
 
 El sobre máximo es el 25% de la utilidad neta de las recargas reales verificadas, **no el 25% del importe recargado ni del valor del viaje**.
@@ -81,10 +101,9 @@ Desde `backend`, con el entorno del servidor cargado:
 python manage.py migrate
 python manage.py compensation status
 python manage.py compensation enroll --driver UUID_PERFIL_CONDUCTOR
-python manage.py compensation place --member CODIGO --sponsor CODIGO_PATROCINADOR --parent CODIGO_ANCESTRO --side left
 ```
 
-Patrocinador y ancestro estructural se conservan por separado. El operador asigna un lugar libre dentro de la estructura del patrocinador antes del primer PV del integrante. No se inventa una regla automática de derrame o una migración desde los campos antiguos de red. No se permite cambiar posiciones ya operativas ni producir ciclos.
+La inscripción normal es automática. `enroll` sirve para recuperar un perfil importado que todavía no tenga cuenta de compensación; no permite escoger ni modificar su posición. El comando `place` y sus argumentos de patrocinador/ancestro fueron retirados. Los campos antiguos de las tablas externas de perfiles se conservan como datos heredados, pero no participan en la ubicación ni en los cálculos de la red activa.
 
 Solo después de una decisión de negocio real se utiliza `compensation configure` con las reglas y `--approval-reference`. Consultar `python manage.py compensation --help` para los argumentos. No se debe usar una constancia ficticia para desbloquear pagos.
 
@@ -97,15 +116,16 @@ python manage.py compensation credit
 
 Las recargas deben ser `recharge`/`completed`, tener referencia de pago real y soporte de utilidad neta. Las recargas `sandbox`, sin referencia o simuladas no financian bonos. La misma recarga no se registra dos veces y no se agregan fuentes a fechas ya cerradas. Los registros antiguos de fecha sin zona se interpretan en UTC, como los escribe Django, y se agrupan según Bogotá.
 
-El registro de PV, la ubicación y los cierres se serializan con un bloqueo de control. Los cierres crean obligaciones; `credit` o la tarea Celery `coredata.credit_compensation_payouts` abonan únicamente las vencidas, una sola vez. No se agregó un calendario automático de cierres con reglas pendientes. La administración de Django permite consultar la auditoría sin editar saldos ni asientos directamente.
+El registro, la ubicación, los PV y los cierres se serializan con un bloqueo de control. Los cierres crean obligaciones; `credit` o la tarea Celery `coredata.credit_compensation_payouts` abonan únicamente las vencidas, una sola vez. Cada cierre conserva la versión de la red y su política. No se agregó un calendario automático de cierres con reglas pendientes. La administración de Django permite consultar la auditoría sin editar posiciones, saldos ni asientos directamente.
 
 ## API y seguridad
 
 - `GET /api/driver/compensation/`: PV, lados, grado diario, maestría, saldo, pagos e incentivos del conductor autenticado.
 - `GET /api/driver/compensation/plan/`: catálogo completo y condiciones.
 - `GET /api/driver/compensation/source/`: PDF original con autenticación.
+- `GET /api/network/`: posición, padre, lado y profundidad de la cuenta autenticada dentro de su propio rol. No permite cambiar de árbol ni consultar la identidad de otros integrantes.
 
-El cliente no puede enviar cantidades de PV, cerrar períodos o modificar fondos. Las nueve tablas nuevas tienen RLS; `PUBLIC`, `anon` y `authenticated` no reciben acceso directo. Django accede como propietario en el esquema privado `ir`, manteniendo la validación de identidad existente. Las políticas de Supabase Auth y el resto de tablas se conservan.
+El cliente no puede enviar cantidades de PV, cerrar períodos o modificar fondos. Las nueve tablas de compensación y `ir_binary_position` tienen RLS; `PUBLIC`, `anon` y `authenticated` no reciben acceso directo. Django accede como propietario en el esquema privado `ir`, manteniendo la validación de identidad existente. Las políticas de Supabase Auth y el resto de tablas se conservan.
 
 ## Verificación
 
@@ -113,4 +133,6 @@ El cliente no puede enviar cantidades de PV, cerrar períodos o modificar fondos
 
 En `frontend`, `flutter test test/compensation_test.dart` verifica PV, fracciones, estado vacío, errores, reintento y adaptación con texto grande. Para generar capturas del renderizador de pruebas de Flutter: `flutter test test/compensation_test.dart --dart-define=CAPTURE_UI=true --update-goldens`. Estas capturas no sustituyen la comprobación en hardware Android/iOS.
 
-Desde la raíz, `backend/.venv/Scripts/python.exe tools/verify_compensation.py` comprueba la migración aplicada, las nueve tablas con RLS sin permisos directos del cliente, el hash del PDF original, las lecturas de dominio y las rutas del backend en ejecución. Cualquier alta temporal de integrante se revierte dentro de una transacción; no realiza abonos ni conserva datos de prueba.
+Desde la raíz, `backend/.venv/Scripts/python.exe tools/verify_compensation.py` comprueba las migraciones, las diez tablas con RLS sin permisos directos del cliente, la continuidad e independencia de ambas redes, el hash del PDF, las lecturas de dominio y las rutas del backend. Cualquier alta temporal de integrante se revierte dentro de una transacción; no realiza abonos ni conserva datos de prueba.
+
+Los scripts anteriores de Auth y comprobación facial liberan únicamente la posición final de su cuenta `@example.test`. Si se registra una cuenta posterior, rechazan retirar esa posición para evitar cambiar números o dejar un hueco. No se utiliza ese procedimiento para eliminar posiciones de cuentas reales.

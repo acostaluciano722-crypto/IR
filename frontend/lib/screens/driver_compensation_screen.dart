@@ -175,11 +175,12 @@ class _DriverCompensationScreenState extends State<DriverCompensationScreen> {
         _line('Puntuación diaria', '${account['daily_score'] ?? 0}'),
         const Text(
             'El grado exige cumplir los PV personales y la meta diaria del lado menor. La comisión semanal requiere alcanzar la meta binomial.'),
-        if (account['has_sponsor'] != true)
-          const Padding(
-              padding: EdgeInsets.only(top: 10),
+        if (account['network'] is Map)
+          Padding(
+              padding: const EdgeInsets.only(top: 10),
               child: Text(
-                  'Tu posición en la red aún no ha sido asignada. Comparte tu código con el equipo de IR.')),
+                  'Tu posición en el árbol de conductores es la ${account['network']['position']}. '
+                  'Se asigna automáticamente por orden de registro, de izquierda a derecha y por niveles.')),
         const SizedBox(height: 10),
         SelectableText('Código de integrante: ${account['member_code']}',
             style: TextStyle(color: context.irColors.muted)),

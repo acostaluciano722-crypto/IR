@@ -5,12 +5,13 @@ from unittest.mock import patch
 
 from django.db import IntegrityError, connection, transaction
 from django.test import SimpleTestCase, TestCase
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from rest_framework.test import APIClient, APIRequestFactory, force_authenticate
 
 from coredata.compensation import (
     BOGOTA, CompensationError, _bounds, close_period, credit_due_payouts, mastery_level,
-    member_for, place_member, record_funding, record_trip_pv, weekly_scores,
+    member_for, record_funding, record_trip_pv, weekly_scores,
 )
 from coredata.compensation_plan import GRADES, MASTERIES, PLAN_VERSION, grade_for, split_funds
 from coredata.models import (
@@ -18,7 +19,8 @@ from coredata.models import (
     CompensationIncentive, CompensationMember, CompensationPV, CompensationPayout,
     CompensationPeriod, DriverProfile, DriverTransaction, PassengerProfile, Ride, UserBonus, Usuario,
 )
-from coredata.serializers import rides_for_api
+from coredata.serializers import RideSerializer, rides_for_action, rides_for_api
+from coredata.compensation_views import CompensationMeView
 from drivers.api_views import RideUpdateStatusView
 
 
@@ -62,8 +64,6 @@ class CompensationTests(TestCase):
         self.root = self.member()
         self.left = self.member()
         self.right = self.member()
-        place_member(self.left, self.root, self.root, 'left')
-        place_member(self.right, self.root, self.root, 'right')
         self.passenger_user = Usuario.objects.create(id=uuid.uuid4(), rol='passenger', estado='active')
         self.passenger = PassengerProfile.objects.create(id=uuid.uuid4(), user=self.passenger_user,
             points=0, total_rides=0, rating=0, rating_count=0)
@@ -136,14 +136,14 @@ class CompensationTests(TestCase):
         with self.assertRaises(CompensationError):
             record_trip_pv(self.trip(self.left), self.t0)
 
-    def test_position_cannot_be_reassigned_or_occupied_twice(self):
+    def test_positions_are_automatic_and_cannot_overlap(self):
         extra = self.member()
-        with self.assertRaises(CompensationError):
-            place_member(extra, self.root, self.root, 'left')
-        with self.assertRaises(CompensationError):
-            place_member(self.left, self.root, self.right, 'right')
-        with self.assertRaises(CompensationError):
-            place_member(self.root, self.left, self.left, 'left')
+        self.assertEqual([m.placement.number for m in [self.root, self.left, self.right, extra]], [1, 2, 3, 4])
+        self.assertEqual(extra.placement.parent_number, 2)
+        self.assertEqual(member_for(extra.driver).pk, extra.pk)
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            extra.placement.number = 2
+            extra.placement.save()
 
     def test_full_trip_validation_debits_1000_from_20000_and_grants_10_pv_once(self):
         ride = rides_for_api(Ride.objects.filter(pk=self.trip(self.left, status='completed').pk)).get()
@@ -282,7 +282,6 @@ class CompensationTests(TestCase):
 
     def test_nested_descendant_credit_uses_side_of_first_branch(self):
         grandchild = self.member()
-        place_member(grandchild, self.left, self.left, 'right')
         self.seed_pv(self.root, 10000)
         self.seed_pv(self.left, 9999)
         event = record_trip_pv(self.trip(grandchild))
@@ -315,9 +314,10 @@ class CompensationTests(TestCase):
                 net_profit=0, budget=0, distributed=0, plan_version=PLAN_VERSION)
             CompensationAward.objects.create(member=self.root, period=period, level=3)
         # Four distinct Master Oro descendants, two per side, held before September.
-        for branch in [self.left, self.right]:
-            child = self.member()
-            place_member(child, branch, branch, 'left')
+        left_child = self.member()  # position 4
+        self.member()  # position 5
+        right_child = self.member()  # position 6
+        for branch, child in [(self.left, left_child), (self.right, right_child)]:
             for person in [branch, child]:
                 CompensationAward.objects.create(member=person, period=period, level=3)
         lower, upper = _bounds(date(2026, 9, 1), date(2026, 9, 15))
@@ -327,3 +327,77 @@ class CompensationTests(TestCase):
             budget=0, distributed=0, plan_version=PLAN_VERSION)
         CompensationAward.objects.create(member=self.root, period=third, level=3)
         self.assertEqual(mastery_level(self.root, lower, upper), 4)
+
+    def test_ancestor_credit_query_count_is_independent_of_tree_depth(self):
+        members = [self.root, self.left, self.right]
+        members.extend(self.member() for _ in range(60))
+        for member in members:
+            self.seed_pv(member, 10000)
+        shallow, deep = self.trip(self.left), self.trip(members[-1])
+        with CaptureQueriesContext(connection) as shallow_queries:
+            first = record_trip_pv(shallow)
+        with CaptureQueriesContext(connection) as deep_queries:
+            second = record_trip_pv(deep)
+        self.assertEqual(first.branch_credits.count(), 1)
+        self.assertEqual(second.branch_credits.count(), 5)
+        self.assertEqual(len(shallow_queries), len(deep_queries))
+
+    def test_payment_batch_does_not_issue_per_member_writes(self):
+        members = [self.root, self.left, self.right] + [self.member() for _ in range(3)]
+        period = CompensationPeriod.objects.create(kind='weekly', start=date(2026, 9, 1),
+            end=date(2026, 9, 7), payable_on=date(2026, 9, 8), net_profit=10000,
+            budget=1080, distributed=600, plan_version=PLAN_VERSION)
+        CompensationPayout.objects.bulk_create([
+            CompensationPayout(member=member, period=period, amount=100) for member in members])
+        with CaptureQueriesContext(connection) as queries:
+            self.assertEqual(credit_due_payouts(), 6)
+        self.assertLessEqual(len(queries), 10)
+        self.assertEqual(UserBonus.objects.count(), 6)
+        self.assertEqual(credit_due_payouts(), 0)
+        self.assertEqual(list(DriverProfile.objects.filter(pk__in=[m.driver_id for m in members])
+                              .values_list('bonus_balance', flat=True)), [100] * 6)
+
+    def test_action_lookup_is_one_query_and_display_payload_is_unchanged(self):
+        ride = self.trip(self.left)
+        with self.assertNumQueries(1):
+            action = rides_for_action(Ride.objects.filter(pk=ride.pk)).get()
+            self.assertEqual(action.passenger_profile.user_id, self.passenger_user.pk)
+        with CaptureQueriesContext(connection) as full_queries:
+            display = rides_for_api(Ride.objects.filter(pk=ride.pk)).get()
+            payload = RideSerializer(display).data
+        self.assertGreater(len(full_queries), 1)
+        self.assertEqual(payload['id'], action.api_id)
+        self.assertEqual(payload['final_fare'], '10000.00')
+
+    def test_compensation_snapshot_uses_eight_queries_without_writing(self):
+        request = APIRequestFactory().get('/')
+        force_authenticate(request, user=self.root.driver.user)
+        with CaptureQueriesContext(connection) as queries:
+            response = CompensationMeView.as_view()(request)
+        self.assertEqual(response.status_code, 200)
+        self.assertLessEqual(len(queries), 8)
+        self.assertTrue(all('SELECT' in item['sql'] for item in queries))
+        self.assertEqual(response.data['network']['position'], 1)
+
+    def test_location_update_still_returns_the_full_live_payload(self):
+        ride = rides_for_api(Ride.objects.filter(pk=self.trip(self.left).pk)).get()
+        client = APIClient()
+        client.force_authenticate(user=self.passenger_user)
+        response = client.post(f'/api/rides/{ride.api_id}/location/',
+            {'latitude': 10.42, 'longitude': -75.53}, format='json')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['passenger_lat'], 10.42)
+        self.assertEqual(response.data['passenger_lng'], -75.53)
+        self.assertIn('offers', response.data)
+        self.assertEqual(response.data['final_fare'], '10000.00')
+
+    def test_ratings_keep_the_average_count_and_cannot_be_repeated(self):
+        ride = rides_for_api(Ride.objects.filter(pk=self.trip(self.left).pk)).get()
+        client = APIClient()
+        client.force_authenticate(user=self.passenger_user)
+        url = f'/api/rides/{ride.api_id}/rating/'
+        self.assertEqual(client.post(url, {'rating': 5}, format='json').status_code, 200)
+        self.assertEqual(client.post(url, {'rating': 1}, format='json').status_code, 409)
+        self.left.driver.refresh_from_db()
+        self.assertEqual(self.left.driver.rating, 5)
+        self.assertEqual(self.left.driver.rating_count, 1)

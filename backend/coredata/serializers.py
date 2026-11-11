@@ -69,10 +69,6 @@ class RideCreateSerializer(serializers.Serializer):
         return attrs
 
 
-class DriverProfileSerializer(serializers.Serializer):
-    status = serializers.ChoiceField(choices=DriverProfile.Status.choices, required=False)
-
-
 class DriverStatusSerializer(serializers.Serializer):
     status = serializers.ChoiceField(choices=(
         DriverProfile.Status.OFFLINE,
@@ -229,7 +225,7 @@ class RideSerializer(serializers.Serializer):
 
 def rides_for_api(queryset):
     return queryset.select_related(
-        'passenger_profile__user', 'driver_profile__user', 'origin_zone', 'destination_zone'
+        'passenger_profile__user', 'driver_profile__user'
     ).prefetch_related(
         'driver_profile__vehicles',
         Prefetch(
@@ -249,6 +245,13 @@ def rides_for_api(queryset):
         driver_lat=RawSQL('ST_Y("viaje"."ubicacion_conductor")', [], output_field=FloatField()),
         driver_lng=RawSQL('ST_X("viaje"."ubicacion_conductor")', [], output_field=FloatField()),
     )
+
+
+def rides_for_action(queryset=None):
+    """Updates need ownership and state, without the display-only prefetches."""
+    return (Ride.objects.all() if queryset is None else queryset).select_related(
+        'passenger_profile__user', 'driver_profile__user'
+    ).annotate(api_id=RawSQL('"viaje"."api_id"', [], output_field=BigIntegerField()))
 
 
 def offers_for_api(queryset):

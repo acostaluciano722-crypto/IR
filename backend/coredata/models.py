@@ -4,6 +4,7 @@ import os
 import uuid
 
 from .compensation_models import (  # noqa: F401 -- register managed audit models
+    BinaryPosition,
     CompensationAward, CompensationBranchCredit, CompensationControl,
     CompensationFunding, CompensationIncentive, CompensationMember,
     CompensationPV, CompensationPayout, CompensationPeriod,
